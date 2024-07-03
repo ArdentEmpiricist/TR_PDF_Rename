@@ -4,5 +4,6 @@ The neo-broker Trade Republic does not name security transaction statements in a
 
 Warning: Should only be used on PDF files from Trade Republic or directories only containing these files! Will panic if used with non Trade Republic PDF files.
 
-### how to use
-```tr_pdf_rename path```
+### how to
+install ```cargo add TR_PDF_rename```
+use ```TR_PDF_rename [path]‚```
