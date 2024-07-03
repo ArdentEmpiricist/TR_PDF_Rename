@@ -6,4 +6,5 @@ Warning: Should only be used on PDF files from Trade Republic or directories onl
 
 ### how to
 install ```cargo add TR_PDF_rename```
+
 use ```TR_PDF_rename [path]‚```
