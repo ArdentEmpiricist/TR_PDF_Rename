@@ -1,0 +1,12 @@
+[package]
+name = "tr_pdf_rename"
+version = "0.1.0"
+edition = "2021"
+description = "Reads security transaction statements (as pdf) from neo-broker Trade Republic and renames them as transactiondate_ordertype_name."
+readme = "README.md"
+categories = ["command-line-utilities", "filesystem"]
+keywords = ["rename", "Trade Republic"]
+license = "MIT"
+
+[dependencies]
+pdf-extract = "0.7.5"
