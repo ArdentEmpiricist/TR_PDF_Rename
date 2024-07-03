@@ -5,7 +5,7 @@ edition = "2021"
 description = "Reads security transaction statements (as pdf) from neo-broker Trade Republic and renames them as transactiondate_ordertype_name."
 readme = "README.md"
 categories = ["command-line-utilities", "filesystem"]
-keywords = ["rename", "Trade Republic"]
+keywords = ["cli", "rename", "TradeRepublic"]
 license = "MIT"
 
 [dependencies]
