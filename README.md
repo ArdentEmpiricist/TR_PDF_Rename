@@ -1,10 +1,10 @@
 Solves a niche problem, but may be useful to some.
 
-The neo-broker Trade Republic does not name security transaction statements in a reasonable way. So TR_PDF_Rename helps to archive the documents and renames all PDF files with the pattern date_transactiontype_stockname. 
+The neo-broker Trade Republic does not name security transaction statements in a reasonable way. So TR_PDF_Rename helps to archive the documents and renames all PDF files with the pattern date_transactiontype_stockname. Example: ```2024_01_01_WERTPAPIERABRECHNUNG_Core MSCI EM IMI USD (Dist)```
 
 Warning: Should only be used on PDF files from Trade Republic or directories only containing these files! Will panic if used with non Trade Republic PDF files.
 
 ### how to:
 install ```cargo add TR_PDF_rename```
 
-use ```TR_PDF_rename [path]‚```
+use ```TR_PDF_rename [path]```
