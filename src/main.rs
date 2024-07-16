@@ -1,33 +1,43 @@
 use std::{
-    env::args, ffi::OsStr, fs::{self, read_dir}, path::{Path, PathBuf}
+    env::args,
+    ffi::OsStr,
+    fs::{self, read_dir},
+    path::{Path, PathBuf},
 };
-
 
 fn main() -> std::io::Result<()> {
     //get path or filename from args
     let path = PathBuf::from(args().nth(1).expect("no file or directory provided"));
-    
+
     //Alternatively filename can be specified here. Add // to line above and remove at line below + enter path
     //let path = PathBuf::from(r"filename");
 
     //print path/file provided to stdout
     println!("path or file: {:?}", path);
 
-
-//check is path is file or directory
-    if path.is_file() && path.extension().and_then(OsStr::to_str) == Some("pdf")  {
-            rename(&path)?;
+    //check is path is file or directory
+    if path.is_file() && path.extension().and_then(OsStr::to_str) == Some("pdf") {
+        rename(&path)?;
     } else if path.is_dir() {
         //println!("Is dir: {:?}",&path);
         for entry in read_dir(&path).expect("error parsing 'entry in read_dir(&path)'") {
             let entry = entry.expect("error unwrapping entry");
             let file_path = entry.path();
             //check if path is file, is a pdf file and if the filename does not start with "20" (as this would indicate it already got renamed)
-            if file_path.is_file() && file_path.extension().and_then(OsStr::to_str) == Some("pdf") && !entry.file_name().to_str().unwrap().starts_with("20") {
-                println!("Renamed {:?} to {:?}", entry.file_name(), path.file_name().unwrap());
-                    rename(&file_path)?;
-            } else if file_path.is_file() && file_path.extension().and_then(OsStr::to_str) == Some("pdf") && entry.file_name().to_str().unwrap().starts_with("20") {
-                println!("File {:?} ignored as it seems to have been renamed already.", entry.file_name());
+            if file_path.is_file()
+                && file_path.extension().and_then(OsStr::to_str) == Some("pdf")
+                && !entry.file_name().to_str().unwrap().starts_with("20")
+            {
+                let name = rename(&file_path)?;
+                println!("Renamed {:?} to {:?}", entry.file_name(), name.file_name().unwrap());
+            } else if file_path.is_file()
+                && file_path.extension().and_then(OsStr::to_str) == Some("pdf")
+                && entry.file_name().to_str().unwrap().starts_with("20")
+            {
+                println!(
+                    "File {:?} ignored as it seems to have been renamed already.",
+                    entry.file_name()
+                );
             }
         }
     }
@@ -35,13 +45,13 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn rename(path: &Path) -> std::io::Result<()> {
+pub fn rename(path: &Path) -> std::io::Result<PathBuf> {
     //prepare the new path to rename the file
     let mut new_path = PathBuf::new();
 
     //add parent path to new path
     new_path.push(path.parent().unwrap());
-    
+
     //read pdf file
     let bytes = std::fs::read(path).unwrap();
     let out = pdf_extract::extract_text_from_mem(&bytes).unwrap();
@@ -91,7 +101,6 @@ pub fn rename(path: &Path) -> std::io::Result<()> {
 
     //println!("name: {:?}", name);
 
-
     //finalize new filename as date_ordertype_name.pdf
     date_ordertype_name.push_str(&order_type);
 
@@ -104,9 +113,7 @@ pub fn rename(path: &Path) -> std::io::Result<()> {
     new_path.set_extension("pdf");
 
     //rename file
-    println!("filename: {:?}", new_path);
-    fs::rename(path, new_path)?;
-    Ok(())
+    //println!("filename: {:?}", new_path);
+    fs::rename(path, &new_path)?;
+    Ok(new_path.to_path_buf())
 }
-
-
