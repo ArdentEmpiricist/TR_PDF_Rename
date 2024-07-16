@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           # Replace with the name of your binary
-          binary_name="tr_pdf_rename"
+          binary_name="trPDFrename"
 
           dirname="$binary_name-${{ env.VERSION }}-${{ matrix.target }}"
           mkdir "$dirname"
