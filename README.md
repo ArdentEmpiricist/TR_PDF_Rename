@@ -1,6 +1,5 @@
 [![Rust](https://github.com/ArdentEmpiricist/TR_PDF_Rename/actions/workflows/rust.yml/badge.svg)](https://github.com/ArdentEmpiricist/TR_PDF_Rename/actions/workflows/rust.yml)
 ![Crates.io License](https://img.shields.io/crates/l/tr_pdf_rename)
-[![Deploy](https://github.com/ArdentEmpiricist/TR_PDF_Rename/actions/workflows/deploy.yml/badge.svg)](https://github.com/ArdentEmpiricist/TR_PDF_Rename/actions/workflows/deploy.yml)
 
 Solves a niche problem, but may be useful to some.
 
