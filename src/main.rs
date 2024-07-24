@@ -29,7 +29,11 @@ fn main() -> std::io::Result<()> {
                 && !entry.file_name().to_str().unwrap().starts_with("20")
             {
                 let name = rename(&file_path)?;
-                println!("Renamed {:?} to {:?}", entry.file_name(), name.file_name().unwrap());
+                println!(
+                    "Renamed {:?} to {:?}",
+                    entry.file_name(),
+                    name.file_name().unwrap()
+                );
             } else if file_path.is_file()
                 && file_path.extension().and_then(OsStr::to_str) == Some("pdf")
                 && entry.file_name().to_str().unwrap().starts_with("20")
@@ -56,18 +60,21 @@ pub fn rename(path: &Path) -> std::io::Result<PathBuf> {
     let bytes = std::fs::read(path).unwrap();
     let out = pdf_extract::extract_text_from_mem(&bytes).unwrap();
 
+    //println!("Read: {}", out);
+
     //find date of transaction and create string yyyy_mm_dd_
-    let position_date: usize = out.clone().find("DATUM").unwrap() + 6;
+    let position_date: usize = out.clone().find("DATUM").unwrap() + 5;
 
     let mut date: String = String::new();
 
-    for i in 0..10 {
+    for i in 0..11 {
         date.push(out.clone().chars().nth(position_date + i).unwrap())
     }
 
     //println!("{:?}", date);
 
-    let vec_date: Vec<&str> = date.split('.').collect();
+    //trim whitespaces and split date
+    let vec_date: Vec<&str> = date.trim().split('.').collect();
 
     //organise date to yyyy_mm_dd
     let mut date_ordertype_name: String = String::new();
@@ -87,17 +94,31 @@ pub fn rename(path: &Path) -> std::io::Result<PathBuf> {
 
     let mut order_type: String = String::new();
 
-    for (i, line) in out.lines().enumerate() {
-        if line.trim_start().starts_with("WERTPAPIERABRECHNUNG") {
-            order_type = line.trim_start().to_string();
-        } else if line.starts_with("POSITION") {
-            line_name = i + 2;
-            //println!("Line with POSITION: {:?},{:?}, {:?}", line, i, line_name);
-        } else if i == line_name {
-            //println!("Line Name: {:?}", line);
-            name = line.to_string();
+    //take inbto account the different formatting
+    if out.contains("DIVIDENDE") {
+        order_type = "Dividende".to_string();
+        for (i, line) in out.lines().enumerate() {
+            if line.starts_with("POSITION") {
+                line_name = i + 2;
+                //println!("Line with POSITION: {:?},{:?}, {:?}", line, i, line_name);
+            } else if i == line_name {
+                //println!("Line Name: {:?}", line);
+                name = line.to_string();
+                break;
+            }
         }
-    }
+    } else if out.contains("WERTPAPIERABRECHNUNG") {
+        order_type = "Wertpapierabrechnung".to_string();
+        for (i, line) in out.lines().enumerate() {
+            if line.starts_with("POSITION") {
+                line_name = i + 2;
+                //println!("Line with POSITION: {:?},{:?}, {:?}", line, i, line_name);
+            } else if i == line_name {
+                //println!("Line Name: {:?}", line);
+                name = line.to_string();
+            }
+        }
+    };
 
     //println!("name: {:?}", name);
 
