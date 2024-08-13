@@ -120,7 +120,7 @@ pub fn rename(path: &Path) -> std::io::Result<PathBuf> {
         }
     } else if out.contains("DEPOTTRANSFER") {
         order_type = "Depottransfer".to_string();
-        for (i, line) in out.lines().enumerate() {
+        for line in out.lines() {
             if line.starts_with("1 Depottransfer") {
                 name = line
                     .strip_prefix("1 Depottransfer eingegangen ")
