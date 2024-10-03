@@ -107,6 +107,28 @@ pub fn rename(path: &Path) -> std::io::Result<PathBuf> {
                 break;
             }
         }
+    } else if out.contains("SAVEBACK") {
+        order_type = "Wertpapierabrechnung_Saveback".to_string();
+        for (i, line) in out.lines().enumerate() {
+            if line.starts_with("POSITION") {
+                line_name = i + 2;
+                //println!("Line with POSITION: {:?},{:?}, {:?}", line, i, line_name);
+            } else if i == line_name {
+                //println!("Line Name: {:?}", line);
+                name = line.to_string();
+            }
+        }
+    } else if out.contains("SPARPLAN") {
+        order_type = "Wertpapierabrechnung_Sparplan".to_string();
+        for (i, line) in out.lines().enumerate() {
+            if line.starts_with("POSITION") {
+                line_name = i + 2;
+                //println!("Line with POSITION: {:?},{:?}, {:?}", line, i, line_name);
+            } else if i == line_name {
+                //println!("Line Name: {:?}", line);
+                name = line.to_string();
+            }
+        }
     } else if out.contains("WERTPAPIERABRECHNUNG") {
         order_type = "Wertpapierabrechnung".to_string();
         for (i, line) in out.lines().enumerate() {
