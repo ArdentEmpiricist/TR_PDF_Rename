@@ -131,6 +131,9 @@ pub fn rename(path: &Path) -> std::io::Result<PathBuf> {
                 name = line.to_string();
             }
         }
+    } else if out.contains("STEUERLICHE OPTIMIERUNG") {
+        order_type = "Steuerliche".to_string();
+        name = "Optimierung".to_string();
     } else if out.contains("WERTPAPIERABRECHNUNG") {
         order_type = "Wertpapierabrechnung".to_string();
         for (i, line) in out.lines().enumerate() {
