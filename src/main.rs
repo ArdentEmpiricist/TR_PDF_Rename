@@ -53,8 +53,10 @@ pub fn rename(path: &Path) -> std::io::Result<PathBuf> {
     //prepare the new path to rename the file
     let mut new_path = PathBuf::new();
 
-    //add parent path to new path
+    //add parent path to new path and clone for further use
     new_path.push(path.parent().unwrap());
+
+    let mut unique_path = new_path.clone();
 
     //read pdf file
     let bytes = std::fs::read(path).unwrap();
@@ -162,12 +164,41 @@ pub fn rename(path: &Path) -> std::io::Result<PathBuf> {
 
     date_ordertype_name.push_str(&name);
 
-    new_path.push(date_ordertype_name);
+    new_path.push(date_ordertype_name.clone());
 
     new_path.set_extension("pdf");
 
     //rename file
-    //println!("filename: {:?}", new_path);
-    fs::rename(path, &new_path)?;
-    Ok(new_path.to_path_buf())
+
+    //check if file exists and add counter to filename to create unique filename
+    if new_path.exists() {
+        let unique_filename = get_unique_filename(new_path);
+        unique_path.push(&unique_filename);
+        fs::rename(path, &unique_path)?;
+        new_path = unique_path;
+    } else {
+        fs::rename(path, &new_path)?;
+    }
+    Ok(new_path)
+}
+
+fn get_unique_filename(mut path: PathBuf) -> PathBuf {
+    let mut counter = 1;
+    let original_path = path.clone();
+
+    while path.exists() {
+        let mut new_path = original_path.clone();
+        new_path.set_file_name(format!(
+            "{}_{}.pdf",
+            original_path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or(""),
+            counter
+        ));
+        path = new_path;
+        counter += 1;
+    }
+
+    path
 }
