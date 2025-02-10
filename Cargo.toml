@@ -9,4 +9,4 @@ keywords = ["cli", "rename", "TradeRepublic"]
 license = "MIT"
 
 [dependencies]
-pdf-extract = "0.8.0"
+pdf-extract = "0.8.2"
