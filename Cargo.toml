@@ -1,6 +1,6 @@
 [package]
 name = "TR_PDF_rename"
-version = "0.1.13"
+version = "0.1.14"
 edition = "2021"
 description = "Reads security transaction statements (as pdf) from neo-broker Trade Republic and renames them as transactiondate_ordertype_name."
 readme = "README.md"
@@ -9,4 +9,4 @@ keywords = ["cli", "rename", "TradeRepublic"]
 license = "MIT"
 
 [dependencies]
-pdf-extract = "0.7.11"
+pdf-extract = "0.8.2"

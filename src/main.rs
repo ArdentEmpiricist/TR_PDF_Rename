@@ -78,7 +78,7 @@ pub fn rename(path: &Path) -> std::io::Result<PathBuf> {
     //trim whitespaces and split date
     let vec_date: Vec<&str> = date.trim().split('.').collect();
 
-    //organise date to yyyy_mm_dd
+    //organize date to yyyy_mm_dd
     let mut date_ordertype_name: String = String::new();
     date_ordertype_name.push_str(vec_date[2]);
     date_ordertype_name.push('_');
@@ -96,7 +96,7 @@ pub fn rename(path: &Path) -> std::io::Result<PathBuf> {
 
     let mut order_type: String = String::new();
 
-    //take inbto account the different formatting
+    //take into account the different formatting
     if out.contains("DIVIDENDE") {
         order_type = "Dividende".to_string();
         for (i, line) in out.lines().enumerate() {
@@ -134,6 +134,14 @@ pub fn rename(path: &Path) -> std::io::Result<PathBuf> {
     } else if out.contains("STEUERLICHE OPTIMIERUNG") {
         order_type = "Steuerliche".to_string();
         name = "Optimierung".to_string();
+    } else if out.contains("Zinszahlung") && out.contains("Anleihe") {
+        order_type = "Zinszahlung".to_string();
+        for line in out.lines() {
+            if line.starts_with("Anleihe") {
+                name = line.to_string();
+                //println!("Line with POSITION: {:?},{:?}, {:?}", line, i, line_name);
+            }
+        }
     } else if out.contains("DEPOTAUSZUG") {
         order_type = "Depot".to_string();
         name = "Auszug".to_string();
