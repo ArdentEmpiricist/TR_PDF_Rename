@@ -1,7 +1,7 @@
 [package]
 name = "TR_PDF_rename"
 version = "0.1.14"
-edition = "2021"
+edition = "2024"
 description = "Reads security transaction statements (as pdf) from neo-broker Trade Republic and renames them as transactiondate_ordertype_name."
 readme = "README.md"
 categories = ["command-line-utilities", "filesystem"]
