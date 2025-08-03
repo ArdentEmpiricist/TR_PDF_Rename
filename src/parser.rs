@@ -206,13 +206,13 @@ pub fn build_filename(pdf_data: &PdfData, orig_name: &str) -> String {
     let isin_part = pdf_data
         .isin
         .as_ref()
-        .map(|s| format!("_{}", s))
+        .map(|s| format!("_{s}"))
         .unwrap_or_default();
     let ext = std::path::Path::new(orig_name)
         .extension()
         .and_then(std::ffi::OsStr::to_str)
         .unwrap_or("pdf");
-    format!("{}_{}{}_{}.{}", date, doc_type, isin_part, namepart, ext)
+    format!("{date}_{doc_type}{isin_part}_{namepart}.{ext}")
 }
 
 #[cfg(test)]
