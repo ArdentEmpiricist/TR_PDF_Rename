@@ -69,59 +69,49 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
         }
     }
 
-    // --- ISIN + Asset Extraction (with correct validation) ---
+    // --- ISIN + Asset Extraction (improved, more robust) ---
     let mut isin = None;
     let mut asset = None;
     let lines: Vec<&str> = text.lines().collect();
     let possible_isin_regex = Regex::new(r"\b([A-Z]{2}[A-Z0-9]{9}[0-9])\b").unwrap();
 
     for (i, line) in lines.iter().enumerate() {
-        // Context filter: skip VAT/Tax ID lines
         if line.contains("Umsatzsteuer") || line.contains("VAT") {
             continue;
         }
-        // Search for ISIN-like substrings, validate via isin crate
         for caps in possible_isin_regex.captures_iter(line) {
             let candidate = caps.get(1).unwrap().as_str();
             if ISIN::from_str(candidate).is_ok() {
                 isin = Some(candidate.to_string());
-                // Try to extract the asset name from nearby lines
-                let mut name_candidate = None;
-                for offset in [-2, -1, 1, 2].iter() {
-                    let idx = i.checked_add_signed(*offset);
-                    if let Some(idx) = idx {
-                        if idx < lines.len() {
-                            let l = lines[idx].trim();
-                            if !l.is_empty()
-                                && !l.contains("ISIN")
-                                && !l.contains("Stk")
-                                && !l.contains("Shares")
-                                && !l.contains("Kapitalertrag")
-                                && !l.contains("VAT")
-                                && !l.contains("Umsatzsteuer")
-                                && !l.chars().all(|c| c.is_numeric())
-                                && !l.chars().all(|c| c == '.')
-                            {
-                                if !Regex::new(r"^\d+[.,]?\d* ?(EUR|USD)?$")
-                                    .unwrap()
-                                    .is_match(l)
-                                    && !possible_isin_regex.is_match(l)
-                                {
-                                    name_candidate = Some(l.to_string());
-                                    break;
-                                }
-                            }
+                // NEW: asset detection
+                let mut found_asset = None;
+                for offset in 1..=2 {
+                    if let Some(after_line) = lines.get(i + offset) {
+                        let after_line = after_line.trim();
+                        if !after_line.is_empty()
+                            && !after_line.contains("ISIN")
+                            && !possible_isin_regex.is_match(after_line)
+                            && after_line.len() > 3
+                        {
+                            found_asset = Some(after_line.to_string());
+                            break;
                         }
                     }
                 }
-                // Try the ISIN line itself if not just ISIN
-                if name_candidate.is_none() {
-                    let l = lines[i].trim();
-                    if !l.contains("ISIN") && l.len() > 6 && !possible_isin_regex.is_match(l) {
-                        name_candidate = Some(l.to_string());
+                if found_asset.is_none() && i >= 1 {
+                    let before_line = lines[i - 1].trim();
+                    if !before_line.is_empty()
+                        && !before_line.contains("ISIN")
+                        && !possible_isin_regex.is_match(before_line)
+                        && before_line.len() > 3
+                    {
+                        found_asset = Some(before_line.to_string());
                     }
                 }
-                asset = name_candidate.or(Some(candidate.to_string()));
+                if found_asset.is_none() {
+                    found_asset = Some(candidate.to_string());
+                }
+                asset = found_asset;
                 break;
             }
         }
@@ -164,22 +154,21 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
             if let Some(caps) = pos_re.captures(text) {
                 asset = Some(caps.get(1)?.as_str().trim().to_string());
             } else {
-                asset = Some("Zinsen".to_string());
+                asset = Some("Guthaben".to_string());
+            }
+        } else if doc_type == "Dividende" && isin.is_none() {
+            let pos_re = Regex::new(r"POSITION[^\n]*\n([^\n]+)").unwrap();
+            if let Some(caps) = pos_re.captures(text) {
+                asset = Some(caps.get(1)?.as_str().trim().to_string());
+            } else {
+                asset = Some("Guthaben".to_string());
             }
         } else {
             let pos_re = Regex::new(r"POSITION[^\n]*\n([^\n]+)").unwrap();
             if let Some(caps) = pos_re.captures(text) {
-                asset = Some(
-                    caps.get(1)
-                        .unwrap()
-                        .as_str()
-                        .split_whitespace()
-                        .take(4)
-                        .collect::<Vec<_>>()
-                        .join(" "),
-                );
+                asset = Some(caps.get(1).unwrap().as_str().trim().to_string());
             } else {
-                asset = Some("Cash".to_string());
+                asset = Some("Guthaben".to_string());
             }
         }
     }
@@ -202,7 +191,7 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
         date,
         doc_type,
         isin,
-        asset: asset.unwrap_or_else(|| "Cash".to_string()),
+        asset: asset.unwrap_or_else(|| "Guthaben".to_string()),
     })
 }
 
@@ -249,15 +238,15 @@ mod tests {
         let input = "DATUM 31.07.2025\nISIN: IE00BZ163G84\nEUR Corporate Bond (Dist)\n";
         let result = parse_pdf_data(input).unwrap();
         assert_eq!(result.isin.as_deref(), Some("IE00BZ163G84"));
-        assert!(result.asset.contains("EUR Corporate Bond (Dist)"));
+        assert_eq!(result.asset, "EUR Corporate Bond (Dist)");
     }
 
     #[test]
     fn test_isin_name_across_lines() {
-        let input = "ISIN:\nIE00BF4RFH31\nMSCI World Small Cap USD (Acc)\n";
+        let input = "DATUM 30.07.2025\nISIN:\nIE00BF4RFH31\nMSCI World Small Cap USD (Acc)\n";
         let result = parse_pdf_data(input).unwrap();
         assert_eq!(result.isin.as_deref(), Some("IE00BF4RFH31"));
-        assert!(result.asset.contains("MSCI World Small Cap USD (Acc)"));
+        assert_eq!(result.asset, "MSCI World Small Cap USD (Acc)");
     }
 
     #[test]
@@ -295,11 +284,11 @@ mod tests {
     #[test]
     fn test_summary_document_zinsen_und_geldmarkt_dividende() {
         let input = r#"
-        DATUM 01.08.2025
-        Interest Payout
-        Cash Zinsen 2,00% 01.07.2025 - 31.07.2025 18,44 EUR
-        Geldmarkt Dividende 2,00% 01.07.2025 - 31.07.2025 68,15 EUR
-    "#;
+            DATUM 01.08.2025
+            Interest Payout
+            Cash Zinsen 2,00% 01.07.2025 - 31.07.2025 18,44 EUR
+            Geldmarkt Dividende 2,00% 01.07.2025 - 31.07.2025 68,15 EUR
+        "#;
         let result = parse_pdf_data(input).unwrap();
         assert_eq!(result.doc_type, "Zinsen_und_Dividende");
         assert_eq!(result.asset, "Guthaben_Zinsen_und_Geldmarkt_Dividende");
@@ -326,7 +315,7 @@ mod tests {
         "#;
         let result = parse_pdf_data(input).unwrap();
         assert_eq!(result.doc_type, "Dividende");
-        assert_eq!(result.asset, "Guthaben_Dividende");
+        assert_eq!(result.asset, "Geldmarkt_Dividende");
     }
 
     #[test]
