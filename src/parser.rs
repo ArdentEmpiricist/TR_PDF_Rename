@@ -3,7 +3,7 @@ use isin::ISIN;
 use regex::Regex;
 use std::str::FromStr;
 
-/// Holds structured PDF data after parsing (date, type, ISIN, asset name)
+/// Structure representing extracted PDF data.
 #[derive(Debug, PartialEq)]
 pub struct PdfData {
     pub date: NaiveDate,
@@ -12,12 +12,21 @@ pub struct PdfData {
     pub asset: String,
 }
 
-/// Parses text extracted from a Trade Republic PDF and returns key structured info.
-///
-/// - Finds the date (supports both German and ISO format)
-/// - Detects the document type by keyword
-/// - Finds the ISIN (using the `isin` crate for correct validation! Skips VAT IDs, etc.)
-/// - Associates a robust asset name with the ISIN (checks surrounding lines, etc.)
+/// Clean up asset names for safe filenames:
+/// - Replace forbidden/special chars and whitespace with underscores
+/// - Collapse consecutive underscores to one
+/// - Trim leading/trailing underscores
+pub fn clean_name(name: &str) -> String {
+    let mut s = name.to_string();
+    s = Regex::new(r"[ /()\.,\[\]]+")
+        .unwrap()
+        .replace_all(&s, "_")
+        .to_string();
+    s = Regex::new(r"_+").unwrap().replace_all(&s, "_").to_string();
+    s.trim_matches('_').to_string()
+}
+
+/// Main parser: Extracts date, doc_type, ISIN (if present), and asset name from Trade Republic PDF text.
 pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
     // --- Date extraction ---
     let date_re = Regex::new(
@@ -51,6 +60,7 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
         ("Depotauszug", "Depotauszug"),
         ("Steuerliche Optimierung", "Steuerliche_Optimierung"),
     ];
+    // Default type; might get overwritten below (esp. for summary docs)
     let mut doc_type = "Unbekannt".to_string();
     for (needle, replacement) in &types {
         if text.to_uppercase().contains(&needle.to_uppercase()) {
@@ -59,31 +69,29 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
         }
     }
 
-    // --- ISIN + Asset Extraction (with real ISIN validation via `isin` crate) ---
+    // --- ISIN + Asset Extraction (with correct validation) ---
     let mut isin = None;
     let mut asset = None;
     let lines: Vec<&str> = text.lines().collect();
-    let possible_isin_regex = Regex::new(r"\b([A-Z]{2}[A-Z0-9]{9}[0-9])\b").unwrap(); // ISIN: 2 letters, 9 alnum, 1 digit
+    let possible_isin_regex = Regex::new(r"\b([A-Z]{2}[A-Z0-9]{9}[0-9])\b").unwrap();
 
     for (i, line) in lines.iter().enumerate() {
-        // Only try ISINs in lines that do NOT contain "Umsatzsteuer" or "VAT" (context filter)
+        // Context filter: skip VAT/Tax ID lines
         if line.contains("Umsatzsteuer") || line.contains("VAT") {
             continue;
         }
-        // Look for ISIN-like substrings in this line
+        // Search for ISIN-like substrings, validate via isin crate
         for caps in possible_isin_regex.captures_iter(line) {
             let candidate = caps.get(1).unwrap().as_str();
             if ISIN::from_str(candidate).is_ok() {
-                // Valid ISIN! (Luhn check, syntax check via crate)
                 isin = Some(candidate.to_string());
-                // Try to extract the asset name from nearby lines (up to 2 before/after)
+                // Try to extract the asset name from nearby lines
                 let mut name_candidate = None;
                 for offset in [-2, -1, 1, 2].iter() {
                     let idx = i.checked_add_signed(*offset);
                     if let Some(idx) = idx {
                         if idx < lines.len() {
                             let l = lines[idx].trim();
-                            // Asset name: Not empty, not ISIN, not "Stk", not "Shares", not VAT, not just numbers
                             if !l.is_empty()
                                 && !l.contains("ISIN")
                                 && !l.contains("Stk")
@@ -94,7 +102,6 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
                                 && !l.chars().all(|c| c.is_numeric())
                                 && !l.chars().all(|c| c == '.')
                             {
-                                // Exclude lines that are only numbers or ISINs
                                 if !Regex::new(r"^\d+[.,]?\d* ?(EUR|USD)?$")
                                     .unwrap()
                                     .is_match(l)
@@ -107,14 +114,13 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
                         }
                     }
                 }
-                // If no candidate, try the ISIN line itself (if not only ISIN)
+                // Try the ISIN line itself if not just ISIN
                 if name_candidate.is_none() {
                     let l = lines[i].trim();
                     if !l.contains("ISIN") && l.len() > 6 && !possible_isin_regex.is_match(l) {
                         name_candidate = Some(l.to_string());
                     }
                 }
-                // If nothing found, fallback to ISIN
                 asset = name_candidate.or(Some(candidate.to_string()));
                 break;
             }
@@ -124,21 +130,57 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
         }
     }
 
-    // Fallback: Use POSITIONS (dividends, Zinsen, etc.)
+    // --- Special handling for Sammelbelege (summary docs with both Zinsen and Dividende) ---
+    let mut found_zinsen = false;
+    let mut found_dividende = false;
+    let mut assets_vec = vec![];
+
+    for line in text.lines() {
+        let lower = line.to_lowercase();
+        if lower.contains("cash zinsen") && !found_zinsen {
+            found_zinsen = true;
+            assets_vec.push("Guthaben_Zinsen".to_string());
+        }
+        if lower.contains("geldmarkt dividende") && !found_dividende {
+            found_dividende = true;
+            assets_vec.push("Geldmarkt_Dividende".to_string());
+        }
+    }
+
+    if isin.is_none() && asset.is_none() && (found_zinsen || found_dividende) {
+        doc_type = match (found_zinsen, found_dividende) {
+            (true, true) => "Zinsen_und_Dividende".to_string(),
+            (true, false) => "Zinsen".to_string(),
+            (false, true) => "Dividende".to_string(),
+            _ => "Unbekannt".to_string(),
+        };
+        asset = Some(assets_vec.join("_und_"));
+    }
+
+    // --- Fallbacks für andere Fälle ---
     if asset.is_none() {
-        let pos_re = Regex::new(r"POSITION[^\n]*\n([^\n]+)").unwrap();
-        if let Some(caps) = pos_re.captures(text) {
-            asset = Some(
-                caps.get(1)
-                    .unwrap()
-                    .as_str()
-                    .split_whitespace()
-                    .take(4)
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            );
+        if (doc_type == "Zinsen" || doc_type == "Zinszahlung") && isin.is_none() {
+            let pos_re = Regex::new(r"POSITION[^\n]*\n([^\n]+)").unwrap();
+            if let Some(caps) = pos_re.captures(text) {
+                asset = Some(caps.get(1)?.as_str().trim().to_string());
+            } else {
+                asset = Some("Zinsen".to_string());
+            }
         } else {
-            asset = Some("Cash".to_string());
+            let pos_re = Regex::new(r"POSITION[^\n]*\n([^\n]+)").unwrap();
+            if let Some(caps) = pos_re.captures(text) {
+                asset = Some(
+                    caps.get(1)
+                        .unwrap()
+                        .as_str()
+                        .split_whitespace()
+                        .take(4)
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                );
+            } else {
+                asset = Some("Cash".to_string());
+            }
         }
     }
 
@@ -155,12 +197,6 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
     if doc_type == "Steuerliche_Optimierung" {
         asset = Some("Steuer".to_string());
     }
-    if doc_type == "Zinszahlung" && isin.is_none() {
-        let pos_re = Regex::new(r"POSITION[^\n]*\n([^\n]+)").unwrap();
-        if let Some(caps) = pos_re.captures(text) {
-            asset = Some(caps.get(1)?.as_str().trim().to_string());
-        }
-    }
 
     Some(PdfData {
         date,
@@ -170,20 +206,7 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
     })
 }
 
-fn clean_name(name: &str) -> String {
-    let mut s = name.to_string();
-    // Replace unwanted chars by underscore
-    s = Regex::new(r"[ /()\.,\[\]]+")
-        .unwrap()
-        .replace_all(&s, "_")
-        .to_string();
-    // Replace multiple consecutive underscores by one
-    s = Regex::new(r"_+").unwrap().replace_all(&s, "_").to_string();
-    // Remove leading/trailing underscores
-    s.trim_matches('_').to_string()
-}
-
-/// Builds a safe filename: date, doc_type, ISIN (if present), and asset name
+/// Builds the filename: date, type, ISIN (if present), asset name (cleaned)
 pub fn build_filename(pdf_data: &PdfData, orig_name: &str) -> String {
     let date = pdf_data.date.format("%Y_%m_%d").to_string();
     let doc_type = pdf_data.doc_type.replace(' ', "_");
@@ -194,11 +217,104 @@ pub fn build_filename(pdf_data: &PdfData, orig_name: &str) -> String {
     let isin_part = pdf_data
         .isin
         .as_ref()
-        .map(|s| format!("_{s}"))
+        .map(|s| format!("_{}", s))
         .unwrap_or_default();
     let ext = std::path::Path::new(orig_name)
         .extension()
         .and_then(std::ffi::OsStr::to_str)
         .unwrap_or("pdf");
-    format!("{date}_{doc_type}{isin_part}_{namepart}.{ext}")
+    format!("{}_{}{}_{}.{}", date, doc_type, isin_part, namepart, ext)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+
+    #[test]
+    fn test_clean_name() {
+        assert_eq!(clean_name("MSCI World USD (Dist)"), "MSCI_World_USD_Dist");
+        assert_eq!(clean_name("Test   (ETF) / Name."), "Test_ETF_Name");
+        assert_eq!(
+            clean_name("  _Multiple__underscores__  "),
+            "Multiple_underscores"
+        );
+        assert_eq!(clean_name("Leading_"), "Leading");
+        assert_eq!(clean_name("Trailing_"), "Trailing");
+        assert_eq!(clean_name("____Test___Name___"), "Test_Name");
+    }
+
+    #[test]
+    fn test_isin_and_name() {
+        let input = "DATUM 31.07.2025\nISIN: IE00BZ163G84\nEUR Corporate Bond (Dist)\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.isin.as_deref(), Some("IE00BZ163G84"));
+        assert!(result.asset.contains("EUR Corporate Bond (Dist)"));
+    }
+
+    #[test]
+    fn test_isin_name_across_lines() {
+        let input = "ISIN:\nIE00BF4RFH31\nMSCI World Small Cap USD (Acc)\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.isin.as_deref(), Some("IE00BF4RFH31"));
+        assert!(result.asset.contains("MSCI World Small Cap USD (Acc)"));
+    }
+
+    #[test]
+    fn test_dividende_sets_asset_from_position() {
+        let input = "DATUM 15.07.2024\nDIVIDENDE\nPOSITION\niShares Core DAX UCITS ETF\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.doc_type, "Dividende");
+        assert_eq!(result.asset, "iShares Core DAX UCITS ETF");
+    }
+
+    #[test]
+    fn test_zinsen_sets_asset_not_cash() {
+        let input = "DATUM 01.08.2025\nZINSEN\nPOSITION\nSonderzinszahlung 5% Anleihe 2029\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.doc_type, "Zinsen");
+        assert_eq!(result.asset, "Sonderzinszahlung 5% Anleihe 2029");
+    }
+
+    #[test]
+    fn test_zinsen_no_position_sets_asset_to_zinsen() {
+        let input = "DATUM 01.08.2025\nZINSEN\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.doc_type, "Zinsen");
+        assert_eq!(result.asset, "Zinsen");
+    }
+
+    #[test]
+    fn test_summary_document_with_zinsen_and_dividende() {
+        let input = r#"
+            DATUM 01.08.2025
+            Interest Payout
+            Cash Zinsen 2,00% 01.07.2025 - 31.07.2025 18,44 EUR
+            Geldmarkt Dividende 2,00% 01.07.2025 - 31.07.2025 68,15 EUR
+        "#;
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.doc_type, "Zinsen_und_Dividende");
+        assert_eq!(result.asset, "Cash_Zinsen_und_Geldmarkt_Dividende");
+    }
+
+    #[test]
+    fn test_build_filename_includes_isin_and_name() {
+        let pdf_data = PdfData {
+            date: NaiveDate::from_ymd(2024, 8, 12),
+            doc_type: "Depottransfer".to_string(),
+            isin: Some("IE00BZ163G84".to_string()),
+            asset: "Vanguard Funds PLC - Vanguard EUR Corporate Bond UCITS".to_string(),
+        };
+        let name = build_filename(&pdf_data, "orig.pdf");
+        assert!(name.contains("IE00BZ163G84"));
+        assert!(name.contains("Vanguard_Funds_PLC"));
+    }
+
+    #[test]
+    fn test_no_isin_and_no_asset() {
+        let input = "DATUM 31.07.2025\nDEPOTAUSZUG\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.doc_type, "Depotauszug");
+        assert_eq!(result.asset, "Depot");
+    }
 }
