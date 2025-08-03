@@ -1,218 +1,104 @@
-use std::{
-    env::args,
-    ffi::OsStr,
-    fs::{self, read_dir},
-    path::{Path, PathBuf},
-};
+mod parser;
 
-fn main() -> std::io::Result<()> {
-    //get path or filename from args
-    let path = PathBuf::from(args().nth(1).expect("no file or directory provided"));
+use anyhow::Result;
+use parser::{build_filename, parse_pdf_data};
+use regex::Regex;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
+use std::{env, fs};
+use walkdir::WalkDir;
 
-    //Alternatively filename can be specified here. Add // to line above and remove at line below + enter path
-    //let path = PathBuf::from(r"filename");
+/// Extracts all text from a PDF file using pdf-extract
+fn extract_pdf_text(path: &Path) -> Result<String> {
+    let pdf_text = pdf_extract::extract_text(path)?;
+    Ok(pdf_text)
+}
 
-    //print path/file provided to stdout
-    println!("path or file: {:?}", path);
+/// Checks if a filename already matches the target renaming scheme
+/// E.g. 2024_08_12_Kauf_DE000A1EWWW0_Vanguard_Funds_PLC_ETF.pdf
+///      2024_08_12_Depotauszug_Depot.pdf (no ISIN)
+fn is_already_renamed(filename: &str) -> bool {
+    // Regex for the naming pattern:
+    // yyyy_mm_dd_TYP(_ISIN)?_ASSET.pdf
+    let re =
+        Regex::new(r"^\d{4}_\d{2}_\d{2}_[A-Za-z_]+(_[A-Z]{2}[A-Z0-9]{9}\d)?_.+\.pdf$").unwrap();
+    re.is_match(filename)
+}
 
-    //check is path is file or directory
-    if path.is_file() && path.extension().and_then(OsStr::to_str) == Some("pdf") {
-        rename(&path)?;
-    } else if path.is_dir() {
-        //println!("Is dir: {:?}",&path);
-        for entry in read_dir(&path).expect("error parsing 'entry in read_dir(&path)'") {
-            let entry = entry.expect("error unwrapping entry");
-            let file_path = entry.path();
-            //check if path is file, is a pdf file and if the filename does not start with "20" (as this would indicate it already got renamed)
-            if file_path.is_file()
-                && file_path.extension().and_then(OsStr::to_str) == Some("pdf")
-                && !entry.file_name().to_str().unwrap().starts_with("20")
-            {
-                let name = rename(&file_path)?;
-                println!(
-                    "Renamed {:?} to {:?}",
-                    entry.file_name(),
-                    name.file_name().unwrap()
-                );
-            } else if file_path.is_file()
-                && file_path.extension().and_then(OsStr::to_str) == Some("pdf")
-                && entry.file_name().to_str().unwrap().starts_with("20")
-            {
-                println!(
-                    "File {:?} ignored as it seems to have been renamed already.",
-                    entry.file_name()
-                );
+/// Processes all PDF files in a folder (and subfolders),
+/// skipping files already in the new naming scheme.
+fn process_folder(folder: &Path) -> Result<()> {
+    for entry in WalkDir::new(folder).into_iter().filter_map(|e| e.ok()) {
+        if entry.file_type().is_file()
+            && entry
+                .path()
+                .extension()
+                .and_then(OsStr::to_str)
+                .map(|e| e.eq_ignore_ascii_case("pdf"))
+                .unwrap_or(false)
+        {
+            let path = entry.path();
+            let orig_filename = path.file_name().unwrap().to_str().unwrap();
+
+            // Skip files already renamed
+            if is_already_renamed(orig_filename) {
+                println!("Skipping (already renamed): {}", orig_filename);
+                continue;
+            }
+
+            println!("Processing: {:?}", orig_filename);
+            let text = extract_pdf_text(path)?;
+            if let Some(pdf_data) = parse_pdf_data(&text) {
+                let new_name = build_filename(&pdf_data, orig_filename);
+                let new_path = path.parent().unwrap().join(new_name);
+                println!("Renaming to: {:?}", new_path.file_name().unwrap());
+                fs::rename(path, new_path)?;
+            } else {
+                println!("Warning: Could not parse {:?}", orig_filename);
             }
         }
     }
-
     Ok(())
 }
 
-pub fn rename(path: &Path) -> std::io::Result<PathBuf> {
-    //prepare the new path to rename the file
-    let mut new_path = PathBuf::new();
-
-    //add parent path to new path and clone for further use
-    new_path.push(path.parent().unwrap());
-
-    let mut unique_path = new_path.clone();
-
-    //read pdf file
-    let bytes = std::fs::read(path).unwrap();
-    let out = pdf_extract::extract_text_from_mem(&bytes).unwrap();
-
-    //println!("Read: {}", out);
-
-    //find date of transaction and create string yyyy_mm_dd_
-    let position_date: usize = out.clone().find("DATUM").unwrap() + 5;
-
-    let mut date: String = String::new();
-
-    for i in 0..11 {
-        date.push(out.clone().chars().nth(position_date + i).unwrap())
+fn main() -> Result<()> {
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 2 {
+        println!("Usage: tr_pdf_renamer <folder>");
+        return Ok(());
     }
-
-    //println!("{:?}", date);
-
-    //trim whitespaces and split date
-    let vec_date: Vec<&str> = date.trim().split('.').collect();
-
-    //organize date to yyyy_mm_dd
-    let mut date_ordertype_name: String = String::new();
-    date_ordertype_name.push_str(vec_date[2]);
-    date_ordertype_name.push('_');
-    date_ordertype_name.push_str(vec_date[1]);
-    date_ordertype_name.push('_');
-    date_ordertype_name.push_str(vec_date[0]);
-    date_ordertype_name.push('_');
-
-    //println!("date: {:?}", date_ordertype_name);
-
-    //find order type and name
-    let mut line_name: usize = 9999;
-
-    let mut name = String::new();
-
-    let mut order_type: String = String::new();
-
-    //take into account the different formatting
-    if out.contains("DIVIDENDE") {
-        order_type = "Dividende".to_string();
-        for (i, line) in out.lines().enumerate() {
-            if line.starts_with("POSITION") {
-                line_name = i + 2;
-                //println!("Line with POSITION: {:?},{:?}, {:?}", line, i, line_name);
-            } else if i == line_name {
-                //println!("Line Name: {:?}", line);
-                name = line.to_string();
-                break;
-            }
-        }
-    } else if out.contains("SAVEBACK") {
-        order_type = "Wertpapierabrechnung_Saveback".to_string();
-        for (i, line) in out.lines().enumerate() {
-            if line.starts_with("POSITION") {
-                line_name = i + 2;
-                //println!("Line with POSITION: {:?},{:?}, {:?}", line, i, line_name);
-            } else if i == line_name {
-                //println!("Line Name: {:?}", line);
-                name = line.to_string();
-            }
-        }
-    } else if out.contains("SPARPLAN") {
-        order_type = "Wertpapierabrechnung_Sparplan".to_string();
-        for (i, line) in out.lines().enumerate() {
-            if line.starts_with("POSITION") {
-                line_name = i + 2;
-                //println!("Line with POSITION: {:?},{:?}, {:?}", line, i, line_name);
-            } else if i == line_name {
-                //println!("Line Name: {:?}", line);
-                name = line.to_string();
-            }
-        }
-    } else if out.contains("STEUERLICHE OPTIMIERUNG") {
-        order_type = "Steuerliche".to_string();
-        name = "Optimierung".to_string();
-    } else if out.contains("Zinszahlung") && out.contains("Anleihe") {
-        order_type = "Zinszahlung".to_string();
-        for line in out.lines() {
-            if line.starts_with("Anleihe") {
-                name = line.to_string();
-                //println!("Line with POSITION: {:?},{:?}, {:?}", line, i, line_name);
-            }
-        }
-    } else if out.contains("DEPOTAUSZUG") {
-        order_type = "Depot".to_string();
-        name = "Auszug".to_string();
-    } else if out.contains("WERTPAPIERABRECHNUNG") {
-        order_type = "Wertpapierabrechnung".to_string();
-        for (i, line) in out.lines().enumerate() {
-            if line.starts_with("POSITION") {
-                line_name = i + 2;
-                //println!("Line with POSITION: {:?},{:?}, {:?}", line, i, line_name);
-            } else if i == line_name {
-                //println!("Line Name: {:?}", line);
-                name = line.to_string();
-            }
-        }
-    } else if out.contains("DEPOTTRANSFER") {
-        order_type = "Depottransfer".to_string();
-        for line in out.lines() {
-            if line.starts_with("1 Depottransfer") {
-                name = line
-                    .strip_prefix("1 Depottransfer eingegangen ")
-                    .unwrap()
-                    .to_string();
-                //println!("Line with POSITION: {:?},{:?}, {:?}", line, i, line_name);
-            }
-        }
-    };
-
-    //println!("name: {:?}", name);
-
-    //finalize new filename as date_ordertype_name.pdf
-    date_ordertype_name.push_str(&order_type);
-
-    date_ordertype_name.push('_');
-
-    date_ordertype_name.push_str(&name);
-
-    new_path.push(date_ordertype_name.clone());
-
-    new_path.set_extension("pdf");
-
-    //rename file
-
-    //check if file exists and add counter to filename to create unique filename
-    if new_path.exists() {
-        let unique_filename = get_unique_filename(new_path);
-        unique_path.push(&unique_filename);
-        fs::rename(path, &unique_path)?;
-        new_path = unique_path;
-    } else {
-        fs::rename(path, &new_path)?;
-    }
-    Ok(new_path)
+    let folder = PathBuf::from(&args[1]);
+    process_folder(&folder)?;
+    Ok(())
 }
 
-fn get_unique_filename(mut path: PathBuf) -> PathBuf {
-    let mut counter = 1;
-    let original_path = path.clone();
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    while path.exists() {
-        let mut new_path = original_path.clone();
-        new_path.set_file_name(format!(
-            "{}_{}.pdf",
-            original_path
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or(""),
-            counter
+    #[test]
+    fn test_already_renamed_with_isin() {
+        assert!(is_already_renamed(
+            "2024_08_12_Kauf_IE00BZ163G84_My_ETF_Name.pdf"
         ));
-        path = new_path;
-        counter += 1;
+        assert!(is_already_renamed(
+            "2023_11_30_Kauf_DE000A1EWWW0_Vanguard_ETF.pdf"
+        ));
     }
 
-    path
+    #[test]
+    fn test_already_renamed_without_isin() {
+        assert!(is_already_renamed("2022_05_11_Depotauszug_Depot.pdf"));
+        assert!(is_already_renamed(
+            "2021_12_01_Steuerliche_Optimierung_Steuer.pdf"
+        ));
+    }
+
+    #[test]
+    fn test_not_renamed_yet() {
+        assert!(!is_already_renamed("Abrechnung 04.03.2024.pdf"));
+        assert!(!is_already_renamed("Trade Republic - Kauf.pdf"));
+        assert!(!is_already_renamed("dividende-test.pdf"));
+        assert!(!is_already_renamed("12345.pdf"));
+    }
 }
