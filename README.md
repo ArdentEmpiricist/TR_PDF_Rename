@@ -2,10 +2,6 @@
 [![Clippy check](https://github.com/ArdentEmpiricist/TR_PDF_Rename/actions/workflows/clippy.yml/badge.svg)](https://github.com/ArdentEmpiricist/TR_PDF_Rename/actions/workflows/clippy.yml)
 ![Crates.io License](https://img.shields.io/crates/l/tr_pdf_rename)
 
-Solves a niche problem, but may be useful to some.
-
-The neo-broker Trade Republic does not name security transaction statements in a reasonable way.
-
 # Trade Republic PDF Rename
 
 This tool renames Trade Republic PDF documents to a structured, machine-readable format:
