@@ -1,49 +1,85 @@
-name: Release
+name: Deploy
 
 on:
   push:
     tags:
-      - 'v*.*.*' # nur bei neuen Tags wie v1.2.3
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
 
 jobs:
-  build:
-    name: Build and upload binaries
+  build-and-upload:
+    name: Build and upload
     runs-on: ${{ matrix.os }}
+
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # You can add more, for any target you'd like!
+        include:
+          - build: linux
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+
+          - build: macos
+            os: macos-latest
+            target: x86_64-apple-darwin
+
+          - build: macos
+            os: macos-latest
+            target: aarch64-apple-darwin
+
+          - build: windows
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Get the release version from the tag
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        # Or @nightly if you want
+        uses: dtolnay/rust-toolchain@stable
+        # Arguments to pass in
         with:
-          toolchain: stable
-          override: true
+          # Make Rust compile to our target (defined in the matrix)
+          targets: ${{ matrix.target }}
 
-      - name: Install dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libclang-dev
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --verbose --release --target ${{ matrix.target }}
 
-      - name: Build release
-        run: cargo build --release
-
-      - name: Rename artifact
+      - name: Build archive
         shell: bash
         run: |
-          BIN=tr_pdf_renamer
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            mv target/release/$BIN.exe $BIN-${{ matrix.os }}.exe
+          # Replace with the name of your binary
+          binary_name="enc_file"
+
+          dirname="$binary_name-${{ env.VERSION }}-${{ matrix.target }}"
+          mkdir "$dirname"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            mv "target/${{ matrix.target }}/release/$binary_name.exe" "$dirname"
           else
-            mv target/release/$BIN $BIN-${{ matrix.os }}
+            mv "target/${{ matrix.target }}/release/$binary_name" "$dirname"
           fi
 
-      - name: Upload release asset
-        uses: softprops/action-gh-release@v2
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            7z a "$dirname.zip" "$dirname"
+            echo "ASSET=$dirname.zip" >> $GITHUB_ENV
+          else
+            tar -czf "$dirname.tar.gz" "$dirname"
+            echo "ASSET=$dirname.tar.gz" >> $GITHUB_ENV
+          fi
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
         with:
           files: |
-            tr_pdf_renamer-ubuntu-latest
-            tr_pdf_renamer-macos-latest
-            tr_pdf_renamer-windows-latest.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            ${{ env.ASSET }}
