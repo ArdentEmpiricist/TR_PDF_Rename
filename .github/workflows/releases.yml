@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*' # nur bei neuen Tags wie v1.2.3
+
+jobs:
+  build:
+    name: Build and upload binaries
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev libclang-dev
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Rename artifact
+        shell: bash
+        run: |
+          BIN=tr_pdf_renamer
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            mv target/release/$BIN.exe $BIN-${{ matrix.os }}.exe
+          else
+            mv target/release/$BIN $BIN-${{ matrix.os }}
+          fi
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            tr_pdf_renamer-ubuntu-latest
+            tr_pdf_renamer-macos-latest
+            tr_pdf_renamer-windows-latest.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
