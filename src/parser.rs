@@ -232,7 +232,7 @@ mod tests {
     use chrono::NaiveDate;
 
     #[test]
-    fn test_clean_name() {
+    fn test_clean_name_removes_special_chars() {
         assert_eq!(clean_name("MSCI World USD (Dist)"), "MSCI_World_USD_Dist");
         assert_eq!(clean_name("Test   (ETF) / Name."), "Test_ETF_Name");
         assert_eq!(
@@ -245,7 +245,7 @@ mod tests {
     }
 
     #[test]
-    fn test_isin_and_name() {
+    fn test_isin_and_asset_extraction() {
         let input = "DATUM 31.07.2025\nISIN: IE00BZ163G84\nEUR Corporate Bond (Dist)\n";
         let result = parse_pdf_data(input).unwrap();
         assert_eq!(result.isin.as_deref(), Some("IE00BZ163G84"));
@@ -261,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dividende_sets_asset_from_position() {
+    fn test_dividende_with_position() {
         let input = "DATUM 15.07.2024\nDIVIDENDE\nPOSITION\niShares Core DAX UCITS ETF\n";
         let result = parse_pdf_data(input).unwrap();
         assert_eq!(result.doc_type, "Dividende");
@@ -269,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn test_zinsen_sets_asset_not_cash() {
+    fn test_zinsen_with_position() {
         let input = "DATUM 01.08.2025\nZINSEN\nPOSITION\nSonderzinszahlung 5% Anleihe 2029\n";
         let result = parse_pdf_data(input).unwrap();
         assert_eq!(result.doc_type, "Zinsen");
@@ -277,44 +277,94 @@ mod tests {
     }
 
     #[test]
-    fn test_zinsen_no_position_sets_asset_to_zinsen() {
+    fn test_zinsen_no_position_sets_guthaben() {
         let input = "DATUM 01.08.2025\nZINSEN\n";
         let result = parse_pdf_data(input).unwrap();
         assert_eq!(result.doc_type, "Zinsen");
-        assert_eq!(result.asset, "Zinsen");
+        assert_eq!(result.asset, "Guthaben");
     }
 
     #[test]
-    fn test_summary_document_with_zinsen_and_dividende() {
+    fn test_dividende_no_position_sets_guthaben() {
+        let input = "DATUM 01.08.2025\nDIVIDENDE\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.doc_type, "Dividende");
+        assert_eq!(result.asset, "Guthaben");
+    }
+
+    #[test]
+    fn test_summary_document_zinsen_und_geldmarkt_dividende() {
+        let input = r#"
+        DATUM 01.08.2025
+        Interest Payout
+        Cash Zinsen 2,00% 01.07.2025 - 31.07.2025 18,44 EUR
+        Geldmarkt Dividende 2,00% 01.07.2025 - 31.07.2025 68,15 EUR
+    "#;
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.doc_type, "Zinsen_und_Dividende");
+        assert_eq!(result.asset, "Guthaben_Zinsen_und_Geldmarkt_Dividende");
+    }
+
+    #[test]
+    fn test_summary_document_only_zinsen() {
         let input = r#"
             DATUM 01.08.2025
             Interest Payout
-            Cash Zinsen 2,00% 01.07.2025 - 31.07.2025 18,44 EUR
-            Geldmarkt Dividende 2,00% 01.07.2025 - 31.07.2025 68,15 EUR
+            Cash Zinsen 1,50% 01.07.2025 - 31.07.2025 18,44 EUR
         "#;
         let result = parse_pdf_data(input).unwrap();
-        assert_eq!(result.doc_type, "Zinsen_und_Dividende");
-        assert_eq!(result.asset, "Cash_Zinsen_und_Geldmarkt_Dividende");
+        assert_eq!(result.doc_type, "Zinsen");
+        assert_eq!(result.asset, "Guthaben_Zinsen");
     }
 
     #[test]
-    fn test_build_filename_includes_isin_and_name() {
-        let pdf_data = PdfData {
-            date: NaiveDate::from_ymd(2024, 8, 12),
-            doc_type: "Depottransfer".to_string(),
-            isin: Some("IE00BZ163G84".to_string()),
-            asset: "Vanguard Funds PLC - Vanguard EUR Corporate Bond UCITS".to_string(),
-        };
-        let name = build_filename(&pdf_data, "orig.pdf");
-        assert!(name.contains("IE00BZ163G84"));
-        assert!(name.contains("Vanguard_Funds_PLC"));
+    fn test_summary_document_only_dividende() {
+        let input = r#"
+            DATUM 01.08.2025
+            Interest Payout
+            Geldmarkt Dividende 1,00% 01.07.2025 - 31.07.2025 99,99 EUR
+        "#;
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.doc_type, "Dividende");
+        assert_eq!(result.asset, "Guthaben_Dividende");
     }
 
     #[test]
-    fn test_no_isin_and_no_asset() {
+    fn test_no_isin_and_no_asset_fallback_depot() {
         let input = "DATUM 31.07.2025\nDEPOTAUSZUG\n";
         let result = parse_pdf_data(input).unwrap();
         assert_eq!(result.doc_type, "Depotauszug");
         assert_eq!(result.asset, "Depot");
+    }
+
+    #[test]
+    fn test_steuerliche_optimierung_sets_asset_steuer() {
+        let input = "DATUM 31.07.2025\nSTEUERLICHE OPTIMIERUNG\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.doc_type, "Steuerliche_Optimierung");
+        assert_eq!(result.asset, "Steuer");
+    }
+
+    #[test]
+    fn test_umsatzsteuer_id_is_not_isin() {
+        let input = "DATUM 31.07.2025\nUmsatzsteuer-ID: DE307510626\nName: Thomas Pischke\n";
+        let result = parse_pdf_data(input).unwrap();
+        // No ISIN should be found here
+        assert_eq!(result.isin, None);
+    }
+
+    #[test]
+    fn test_build_filename_has_no_double_underscores() {
+        let pdf_data = PdfData {
+            date: NaiveDate::from_ymd(2025, 7, 2),
+            doc_type: "Kauf_Sparplan".to_string(),
+            isin: Some("IE00BK1PV551".to_string()),
+            asset: "MSCI World USD (Dist)".to_string(),
+        };
+        let name = build_filename(&pdf_data, "orig.pdf");
+        // Should NOT contain "__" nor end with "_"
+        assert!(!name.contains("__"));
+        assert!(!name.ends_with('_'));
+        assert!(name.contains("MSCI_World_USD_Dist"));
     }
 }

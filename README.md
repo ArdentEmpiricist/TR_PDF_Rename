@@ -4,12 +4,18 @@
 
 Solves a niche problem, but may be useful to some.
 
-The neo-broker Trade Republic does not name security transaction statements in a reasonable way. So TR_PDF_Rename helps to archive the documents by renaming all PDF files with the pattern date(as yyyy_mm_dd)_transactiontype_stockname. Example: ```2024_01_01_WERTPAPIERABRECHNUNG_MSCI World USD (Dist)```
+The neo-broker Trade Republic does not name security transaction statements in a reasonable way.
 
-### Warning: 
-Should only be used on PDF files from Trade Republic or directories only containing these files! Will panic if used with non Trade Republic PDF files.
+# Trade Republic PDF Rename
 
-### how to:
-install ```cargo add TR_PDF_rename``` or download from https://github.com/ArdentEmpiricist/TR_PDF_Rename/releases
+This tool renames Trade Republic PDF documents to a structured, machine-readable format:
 
-use ```TR_PDF_rename [path]```
+    yyyy_mm_dd_[TYPE]_[ASSET].pdf
+
+Supported Types: Kauf, Kauf_Sparplan, Kauf_Saveback, Verkauf, Dividende, Zinsen, Zinszahlung, Kapitalmaßnahme, Depottransfer, Depotauszug, Steuerliche_Optimierung
+
+## Usage
+
+1. Build: `cargo build --release`
+2. Run: `./target/release/tr_pdf_rename <path_to_folder>`
+3. Test: `cargo test`
