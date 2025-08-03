@@ -42,11 +42,11 @@ fn process_folder(folder: &Path) -> Result<()> {
 
             // Skip files already renamed
             if is_already_renamed(orig_filename) {
-                println!("Skipping (already renamed): {}", orig_filename);
+                println!("Skipping (already renamed): {orig_filename}");
                 continue;
             }
 
-            println!("Processing: {:?}", orig_filename);
+            println!("Processing: {orig_filename:?}");
             let text = extract_pdf_text(path)?;
             if let Some(pdf_data) = parse_pdf_data(&text) {
                 let new_name = build_filename(&pdf_data, orig_filename);
@@ -54,7 +54,7 @@ fn process_folder(folder: &Path) -> Result<()> {
                 println!("Renaming to: {:?}", new_path.file_name().unwrap());
                 fs::rename(path, new_path)?;
             } else {
-                println!("Warning: Could not parse {:?}", orig_filename);
+                println!("Warning: Could not parse {orig_filename:?}");
             }
         }
     }
