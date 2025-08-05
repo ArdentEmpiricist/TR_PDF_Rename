@@ -83,29 +83,46 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
             let candidate = caps.get(1).unwrap().as_str();
             if ISIN::from_str(candidate).is_ok() {
                 isin = Some(candidate.to_string());
-                // NEW: asset detection
+
+                // Robust: bis zu 3 Zeilen vor der ISIN nach Asset suchen
                 let mut found_asset = None;
-                for offset in 1..=2 {
-                    if let Some(after_line) = lines.get(i + offset) {
-                        let after_line = after_line.trim();
-                        if !after_line.is_empty()
-                            && !after_line.contains("ISIN")
-                            && !possible_isin_regex.is_match(after_line)
-                            && after_line.len() > 3
+                for offset in (1..=3).rev() {
+                    if i >= offset {
+                        let before = lines[i - offset].trim();
+                        if !before.is_empty()
+                            && !before.contains("ISIN")
+                            && !possible_isin_regex.is_match(before)
+                            && before.len() > 3
+                            && !before.chars().all(|c| c.is_ascii_digit())
+                            && !before.to_lowercase().contains("gesamt")
+                            && !before.to_lowercase().contains("eur")
+                            && !before.starts_with("POSITION")
+                            && !before.to_lowercase().contains("anzahl")
+                            && !before.contains("Stk.")
                         {
-                            found_asset = Some(after_line.to_string());
+                            found_asset = Some(before.to_string());
                             break;
                         }
                     }
                 }
-                if found_asset.is_none() && i >= 1 {
-                    let before_line = lines[i - 1].trim();
-                    if !before_line.is_empty()
-                        && !before_line.contains("ISIN")
-                        && !possible_isin_regex.is_match(before_line)
-                        && before_line.len() > 3
-                    {
-                        found_asset = Some(before_line.to_string());
+                // Dann noch 1-2 Zeilen NACH der ISIN prüfen (z.B. für PDFs, die anders formatiert sind)
+                if found_asset.is_none() {
+                    for offset in 1..=2 {
+                        if let Some(after) = lines.get(i + offset) {
+                            let after = after.trim();
+                            if !after.is_empty()
+                                && !after.contains("ISIN")
+                                && !possible_isin_regex.is_match(after)
+                                && after.len() > 3
+                                && !after.to_lowercase().contains("gesamt")
+                                && !after.to_lowercase().contains("eur")
+                                && !after.contains("Stk.")
+                                && !after.chars().all(|c| c.is_ascii_digit())
+                            {
+                                found_asset = Some(after.to_string());
+                                break;
+                            }
+                        }
                     }
                 }
                 if found_asset.is_none() {
