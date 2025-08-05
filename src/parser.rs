@@ -175,14 +175,9 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
 
     // --- Fallbacks für andere Fälle ---
     if asset.is_none() {
-        if (doc_type == "Zinsen" || doc_type == "Zinszahlung") && isin.is_none() {
-            let pos_re = Regex::new(r"POSITION[^\n]*\n([^\n]+)").unwrap();
-            if let Some(caps) = pos_re.captures(text) {
-                asset = Some(caps.get(1)?.as_str().trim().to_string());
-            } else {
-                asset = Some("Guthaben".to_string());
-            }
-        } else if doc_type == "Dividende" && isin.is_none() {
+        if (doc_type == "Zinsen" || doc_type == "Zinszahlung" || doc_type == "Dividende")
+            && isin.is_none()
+        {
             let pos_re = Regex::new(r"POSITION[^\n]*\n([^\n]+)").unwrap();
             if let Some(caps) = pos_re.captures(text) {
                 asset = Some(caps.get(1)?.as_str().trim().to_string());

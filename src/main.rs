@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn test_build_filename_has_no_double_underscores() {
         let pdf_data = PdfData {
-            date: NaiveDate::from_ymd(2025, 7, 2),
+            date: NaiveDate::from_ymd_opt(2025, 7, 2).unwrap(),
             doc_type: "Kauf_Sparplan".to_string(),
             isin: Some("IE00BK1PV551".to_string()),
             asset: "MSCI World USD (Dist)".to_string(),
