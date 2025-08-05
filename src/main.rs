@@ -74,7 +74,6 @@ fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::parser::{PdfData, build_filename, clean_name, parse_pdf_data};
     use chrono::NaiveDate;
 
