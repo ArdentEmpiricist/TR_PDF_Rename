@@ -6,6 +6,9 @@ description = "Reads security transaction statements (as pdf) from neo-broker Tr
 readme = "README.md"
 categories = ["command-line-utilities", "filesystem"]
 keywords = ["cli", "rename", "TradeRepublic"]
+homepage = "https://crates.io/crates/TR_PDF_rename"
+documentation = "https://docs.rs/crate/TR_PDF_rename/latest"
+repository = "https://github.com/ArdentEmpiricist/TR_PDF_Rename"
 license = "MIT"
 
 [dependencies]

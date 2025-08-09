@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use chrono::NaiveDate;
 use isin::ISIN;
 use regex::Regex;
