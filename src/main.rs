@@ -171,7 +171,18 @@ fn process_folder(folder: &Path) -> Result<()> {
                             println!("Warning: Refusing to rename outside target directory: {:?}", new_path);
                             continue;
                         }
-                        
+                        if let Ok(canonical_parent) = new_path.parent().map(|p| p.canonicalize()).unwrap_or_else(|| 
+                            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Cannot canonicalize parent directory"))
+                        ) {
+                            // The new path must be directly under the canonical parent, and canonical parent must be within canonical_folder
+                            if !canonical_parent.starts_with(&canonical_folder) {
+                                println!("Warning: Refusing to rename outside target directory: {:?}", new_path);
+                                continue;
+                            }
+                        } else {
+                            println!("Warning: Could not canonicalize parent directory for {:?}", new_path);
+                            continue;
+                        }
                         println!("Renaming to: {:?}", new_path.file_name().unwrap_or_default());
                         
                         if let Err(e) = fs::rename(path, &new_path) {
