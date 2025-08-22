@@ -183,7 +183,10 @@ fn process_folder(folder: &Path) -> Result<()> {
                             println!("Warning: Could not canonicalize parent directory for {:?}", new_path);
                             continue;
                         }
-                        println!("Renaming to: {:?}", new_path.file_name().unwrap_or_default());
+                        match new_path.file_name() {
+                            Some(name) => println!("Renaming to: {:?}", name),
+                            None => println!("Warning: Could not determine filename for {:?}", new_path),
+                        }
                         
                         if let Err(e) = fs::rename(path, &new_path) {
                             println!("Error renaming {:?}: {}", orig_filename, e);
