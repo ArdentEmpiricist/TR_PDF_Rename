@@ -272,7 +272,10 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
         });
         if let Some(caps) = TRANSFER_RE.captures(text)
             && let Some(transfer_match) = caps.get(1) {
-            asset = Some(transfer_match.as_str().trim().to_string());
+        if let Some(caps) = TRANSFER_RE.captures(text) {
+            if let Some(transfer_match) = caps.get(1) {
+                asset = Some(transfer_match.as_str().trim().to_string());
+            }
         }
     }
     if doc_type == "Depotauszug" {
