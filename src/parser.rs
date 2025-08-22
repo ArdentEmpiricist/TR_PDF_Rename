@@ -247,10 +247,7 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
         // Extract position info if available
         if let Some(caps) = POSITION_RE.captures(text)
             && let Some(position_match) = caps.get(1) {
-        if let Some(caps) = POSITION_RE.captures(text) {
-            if let Some(position_match) = caps.get(1) {
-                asset = Some(position_match.as_str().trim().to_string());
-            }
+            asset = Some(position_match.as_str().trim().to_string());
         }
         
         // Special handling for Zinsen/Dividende without position
@@ -272,10 +269,7 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
         });
         if let Some(caps) = TRANSFER_RE.captures(text)
             && let Some(transfer_match) = caps.get(1) {
-        if let Some(caps) = TRANSFER_RE.captures(text) {
-            if let Some(transfer_match) = caps.get(1) {
-                asset = Some(transfer_match.as_str().trim().to_string());
-            }
+            asset = Some(transfer_match.as_str().trim().to_string());
         }
     }
     if doc_type == "Depotauszug" {
