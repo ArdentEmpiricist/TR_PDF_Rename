@@ -2,7 +2,6 @@
 
 use chrono::{Datelike, NaiveDate};
 use isin::ISIN;
-use once_cell::sync::Lazy;
 use regex::Regex;
 use std::str::FromStr;
 
