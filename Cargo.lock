@@ -9,6 +9,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "isin",
+ "once_cell",
  "pdf-extract",
  "regex",
  "walkdir",
