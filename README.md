@@ -60,17 +60,20 @@ cargo build --release
 This tool implements several security measures to ensure safe operation:
 
 ### Input Validation
+
 - **File Size Limits**: Rejects files larger than 100MB to prevent DoS attacks
 - **Path Validation**: Ensures all operations stay within the target directory
 - **Character Sanitization**: Removes dangerous characters from filenames
 - **Length Limits**: Validates filename and path lengths
 
 ### Safe File Operations
+
 - **Directory Traversal Protection**: Prevents `../` attacks through path canonicalization
 - **Extension Validation**: Validates file extensions to prevent malicious files
 - **ISIN Validation**: Proper validation of ISIN codes using checksum verification
 
 ### Error Handling
+
 - **Graceful Degradation**: Continues processing other files if one fails
 - **Input Sanitization**: Removes control characters and Unicode exploits
 - **Memory Safety**: Uses `#![forbid(unsafe_code)]` for guaranteed memory safety
@@ -89,48 +92,14 @@ Run with verbose output:
 cargo test -- --nocapture
 ```
 
-## Development
-
-### Code Quality
-
-This project maintains high code quality standards:
-
-```bash
-# Check code formatting
-cargo fmt --check
-
-# Run clippy for linting
-cargo clippy
-
-# Run security checks
-cargo audit
-```
-
-### Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Implement your changes with tests
-4. Ensure all security tests pass
+4. Ensure all tests pass
 5. Submit a pull request
-
-## Security Considerations
-
-When using this tool:
-
-- **Run in a sandboxed environment** for untrusted PDFs
-- **Verify file permissions** before processing
-- **Use read-only source directories** when possible
-- **Regular security updates**: Keep dependencies updated
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Disclaimer
-
-This tool is provided as-is. While extensive security measures are implemented, users should:
-- Test thoroughly in their environment
-- Backup important files before processing
-- Review renamed files for accuracy
-- Report any security issues responsibly
