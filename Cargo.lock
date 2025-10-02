@@ -4,12 +4,11 @@ version = 4
 
 [[package]]
 name = "TR_PDF_rename"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "chrono",
  "isin",
- "once_cell",
  "pdf-extract",
  "regex",
  "walkdir",

@@ -32,7 +32,7 @@ fn extract_pdf_text(path: &Path) -> Result<String> {
 /// Checks if a filename already matches the target renaming scheme
 /// 
 /// # Security
-/// Uses a pre-compiled static regex to prevent ReDoS attacks and improve performance.
+/// Uses a pre-compiled static regex to prevent `ReDoS` attacks and improve performance.
 /// 
 /// # Examples
 /// - `2024_08_12_Kauf_DE000A1EWWW0_Vanguard_Funds_PLC_ETF.pdf` ✓
@@ -45,8 +45,8 @@ fn extract_pdf_text(path: &Path) -> Result<String> {
 /// # Returns
 /// * `bool` - True if the filename matches the expected pattern
 fn is_already_renamed(filename: &str) -> bool {
-    use once_cell::sync::Lazy;
-    static RENAMED_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    use std::sync::LazyLock;
+    static RENAMED_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"^\d{4}_\d{2}_\d{2}_[A-Za-z_]+(_[A-Z]{2}[A-Z0-9]{9}\d)?_.+\.pdf$")
             .expect("Invalid regex pattern for renamed file detection")
     });
@@ -58,7 +58,7 @@ fn is_already_renamed(filename: &str) -> bool {
 /// 
 /// # Security Features
 /// - Validates all paths to prevent directory traversal attacks
-/// - Limits file size processing to prevent DoS attacks  
+/// - Limits file size processing to prevent `DoS` attacks  
 /// - Canonicalizes paths to ensure operations stay within target directory
 /// - Validates filename lengths to prevent filesystem issues
 /// - Includes comprehensive error handling for robustness
@@ -214,16 +214,26 @@ fn main() -> Result<()> {
     
     let folder_arg = &args[1];
     
-    // Validate folder argument
+    // Enhanced input validation
     if folder_arg.len() > 4096 { // Reasonable path length limit
         return Err(anyhow::anyhow!("Folder path too long (max 4096 characters)"));
+    }
+    
+    // Check for null bytes and other dangerous characters in path
+    if folder_arg.contains('\0') {
+        return Err(anyhow::anyhow!("Invalid path: contains null byte"));
+    }
+    
+    // Additional security check for suspicious patterns
+    if folder_arg.starts_with('-') {
+        return Err(anyhow::anyhow!("Invalid path: path cannot start with dash"));
     }
     
     let folder = PathBuf::from(folder_arg);
     
     // Additional validation
     if !folder.exists() {
-        return Err(anyhow::anyhow!("Folder does not exist: {:?}", folder));
+        return Err(anyhow::anyhow!("Folder does not exist: {}", folder.display()));
     }
     
     process_folder(&folder)?;

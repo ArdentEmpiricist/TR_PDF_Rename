@@ -4,6 +4,34 @@ use chrono::{Datelike, NaiveDate};
 use isin::ISIN;
 use regex::Regex;
 use std::str::FromStr;
+use std::sync::LazyLock;
+
+// Pre-compiled regex patterns for performance and security
+static DANGEROUS_CHARS_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"[<>:"|?*\\./\[\]()]"#).expect("Invalid regex pattern for dangerous chars")
+});
+static WHITESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[\s,]+").expect("Invalid regex pattern for whitespace")
+});
+static MULTIPLE_UNDERSCORES_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"_+").expect("Invalid regex pattern for underscores")
+});
+static DATE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(?:DATUM|DATE)\s*([0-9]{2}\.[0-9]{2}\.[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})")
+        .expect("Invalid regex pattern for date extraction")
+});
+static ISIN_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b([A-Z]{2}[A-Z0-9]{9}[0-9])\b")
+        .expect("Invalid regex pattern for ISIN extraction")
+});
+static POSITION_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"POSITION[^\n]*\n([^\n]+)")
+        .expect("Invalid regex pattern for position extraction")
+});
+static TRANSFER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"Depottransfer eingegangen\s+(.+?)(?:\n|$)")
+        .expect("Invalid regex pattern for transfer extraction")
+});
 
 /// Structure representing extracted PDF data from Trade Republic documents.
 /// 
@@ -51,18 +79,6 @@ pub fn clean_name(name: &str) -> String {
         c != '\u{200F}'    // Right-to-left mark
     });
     
-    // Use static regex to avoid repeated compilation and potential panics
-    use once_cell::sync::Lazy;
-    static DANGEROUS_CHARS_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"[<>:"|?*\\./\[\]()]"#).expect("Invalid regex pattern for dangerous chars")
-    });
-    static WHITESPACE_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"[\s,]+").expect("Invalid regex pattern for whitespace")
-    });
-    static MULTIPLE_UNDERSCORES_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"_+").expect("Invalid regex pattern for underscores")
-    });
-    
     // Replace dangerous characters and whitespace with underscores
     s = DANGEROUS_CHARS_RE.replace_all(&s, "_").to_string();
     s = WHITESPACE_RE.replace_all(&s, "_").to_string();
@@ -70,8 +86,9 @@ pub fn clean_name(name: &str) -> String {
     s.trim_matches('_').to_string()
 }
 
-/// Main parser: Extracts date, doc_type, ISIN (if present), and asset name from Trade Republic PDF text.
+/// Main parser: Extracts date, `doc_type`, ISIN (if present), and asset name from Trade Republic PDF text.
 /// Returns None if the text cannot be parsed or contains invalid data.
+#[allow(clippy::too_many_lines)]
 pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
     // Validate input length to prevent potential DoS attacks
     if text.len() > 1_000_000 {
@@ -79,11 +96,6 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
     }
     
     // --- Date extraction with improved error handling ---
-    use once_cell::sync::Lazy;
-    static DATE_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"(?i)\b(?:DATUM|DATE)\s*([0-9]{2}\.[0-9]{2}\.[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})")
-            .expect("Invalid regex pattern for date extraction")
-    });
     
     let date_caps = DATE_RE.captures(text)?;
     let date_str = date_caps.get(1)?.as_str();
@@ -124,7 +136,7 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
     let mut doc_type = "Unbekannt".to_string();
     for (needle, replacement) in &types {
         if text.to_uppercase().contains(&needle.to_uppercase()) {
-            doc_type = replacement.to_string();
+            doc_type = (*replacement).to_string();
             break;
         }
     }
@@ -133,11 +145,6 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
     let mut isin = None;
     let mut asset = None;
     let lines: Vec<&str> = text.lines().collect();
-    
-    static ISIN_REGEX: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"\b([A-Z]{2}[A-Z0-9]{9}[0-9])\b")
-            .expect("Invalid regex pattern for ISIN extraction")
-    });
 
     for (i, line) in lines.iter().enumerate() {
         if line.contains("Umsatzsteuer") || line.contains("VAT") {
@@ -239,11 +246,6 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
 
     // --- Fallbacks für andere Fälle ---
     if asset.is_none() {
-        static POSITION_RE: Lazy<Regex> = Lazy::new(|| {
-            Regex::new(r"POSITION[^\n]*\n([^\n]+)")
-                .expect("Invalid regex pattern for position extraction")
-        });
-        
         // Extract position info if available
         if let Some(caps) = POSITION_RE.captures(text)
             && let Some(position_match) = caps.get(1) {
@@ -262,15 +264,10 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
     }
 
     // Spezialfälle für bestimmte Dokumenttypen
-    if doc_type == "Depottransfer" {
-        static TRANSFER_RE: Lazy<Regex> = Lazy::new(|| {
-            Regex::new(r"Depottransfer eingegangen\s+(.+?)(?:\n|$)")
-                .expect("Invalid regex pattern for transfer extraction")
-        });
-        if let Some(caps) = TRANSFER_RE.captures(text)
-            && let Some(transfer_match) = caps.get(1) {
-            asset = Some(transfer_match.as_str().trim().to_string());
-        }
+    if doc_type == "Depottransfer"
+        && let Some(caps) = TRANSFER_RE.captures(text)
+        && let Some(transfer_match) = caps.get(1) {
+        asset = Some(transfer_match.as_str().trim().to_string());
     }
     if doc_type == "Depotauszug" {
         asset = Some("Depot".to_string());
@@ -317,7 +314,7 @@ pub fn build_filename(pdf_data: &PdfData, orig_name: &str) -> String {
         .isin
         .as_ref()
         .filter(|isin| isin.len() == 12 && isin.chars().all(|c| c.is_ascii_alphanumeric()))
-        .map(|s| format!("_{}", s))
+        .map(|s| format!("_{s}"))
         .unwrap_or_default();
     
     // Validate and clean file extension
@@ -327,5 +324,5 @@ pub fn build_filename(pdf_data: &PdfData, orig_name: &str) -> String {
         .filter(|ext| ext.len() <= 10 && ext.chars().all(|c| c.is_ascii_alphanumeric()))
         .unwrap_or("pdf");
     
-    format!("{}_{}{}_{}.{}", date, doc_type, isin_part, namepart, ext)
+    format!("{date}_{doc_type}{isin_part}_{namepart}.{ext}")
 }

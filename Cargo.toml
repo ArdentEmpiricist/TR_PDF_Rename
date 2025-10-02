@@ -1,6 +1,6 @@
 [package]
 name = "TR_PDF_rename"
-version = "0.2.7"
+version = "0.2.8"
 edition = "2024"
 description = "Reads security transaction statements (as pdf) from neo-broker Trade Republic and renames them as transactiondate_ordertype_name."
 readme = "README.md"
@@ -18,4 +18,3 @@ regex = "1.11.3"
 anyhow = "1"
 chrono = "0.4"
 isin = "0.1.19"
-once_cell = "1.19"
