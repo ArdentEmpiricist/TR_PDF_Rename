@@ -14,7 +14,7 @@ license = "MIT"
 [dependencies]
 walkdir = "2"
 pdf-extract = "0.10"
-regex = "1.11.3"
+regex = "1.12.2"
 anyhow = "1"
 chrono = "0.4"
 isin = "0.1.19"
