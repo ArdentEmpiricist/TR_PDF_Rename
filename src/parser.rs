@@ -549,20 +549,24 @@ fn extract_iban(text: &str) -> Option<String> {
 
 fn is_valid_iban(iban: &str) -> bool {
     let len = iban.len();
-    if len < 15 || len > 34 {
-        return false;
-    }
-
-    let bytes = iban.as_bytes();
-    if !bytes.get(0).map_or(false, u8::is_ascii_alphabetic)
-        || !bytes.get(1).map_or(false, u8::is_ascii_alphabetic)
-        || !bytes.get(2).map_or(false, u8::is_ascii_digit)
-        || !bytes.get(3).map_or(false, u8::is_ascii_digit)
-    {
+    if !(15..=34).contains(&len) {
         return false;
     }
 
     if !iban.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return false;
+    }
+
+    let bytes = iban.as_bytes();
+    let [first, second, third, fourth, ..] = bytes else {
+        return false;
+    };
+
+    if !first.is_ascii_alphabetic()
+        || !second.is_ascii_alphabetic()
+        || !third.is_ascii_digit()
+        || !fourth.is_ascii_digit()
+    {
         return false;
     }
 
