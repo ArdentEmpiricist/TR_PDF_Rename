@@ -21,17 +21,22 @@ yyyy_mm_dd_[TYPE]_[ISIN]_[ASSET].pdf
 
 ## Supported Document Types
 
-- `Kauf` - Purchase transactions
-- `Kauf_Sparplan` - Savings plan purchases  
-- `Kauf_Saveback` - Saveback purchases
-- `Verkauf` - Sale transactions
-- `Dividende` - Dividend payments
-- `Zinsen` - Interest payments
-- `Zinszahlung` - Interest payouts
-- `Kapitalmaßnahme` - Corporate actions
-- `Depottransfer` - Depot transfers
-- `Depotauszug` - Account statements
-- `Steuerliche_Optimierung` - Tax optimization
+- `Kauf` – Standard buy execution
+- `Kauf_Sparplan` – Savings-plan executions
+- `Kauf_Saveback` – Saveback purchases
+- `Verkauf` – Sell transactions (if present in source PDF)
+- `Dividende` – Dividend payouts (single or summary)
+- `Zinsen` / `Zinszahlung` – Interest payouts (single or summary)
+- `Kapitalmaßnahme` – Corporate actions
+- `Depottransfer` – Incoming depot transfers
+- `Depotauszug` – Depot statements (falls back to asset `Depot`)
+- `Steuerliche_Optimierung` – Tax optimisation notices
+- `Kosteninformation_Saveback` – Cost information for saveback plans
+- `Ex_Post_Kosteninformation` – Ex-post cost statements (auto-detect year)
+- `Jahressteuerbescheinigung` – Annual tax certificates (auto-detect year)
+- `Steuerreport` – Steuerreport/Steuerübersicht (auto-detect year)
+- `Kontoauszug` – Trade Republic cash account statements (IBAN-based asset)
+- Summary payout statements combining Zinsen/Dividende (handled automatically)
 
 ## Installation & Usage
 
