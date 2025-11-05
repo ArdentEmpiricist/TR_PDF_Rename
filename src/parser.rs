@@ -10,34 +10,64 @@ use std::sync::LazyLock;
 static DANGEROUS_CHARS_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"[<>:"|?*\\./\[\]()]"#).expect("Invalid regex pattern for dangerous chars")
 });
-static WHITESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[\s,]+").expect("Invalid regex pattern for whitespace")
-});
-static MULTIPLE_UNDERSCORES_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"_+").expect("Invalid regex pattern for underscores")
-});
+static WHITESPACE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[\s,]+").expect("Invalid regex pattern for whitespace"));
+static MULTIPLE_UNDERSCORES_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"_+").expect("Invalid regex pattern for underscores"));
 static DATE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(?:DATUM|DATE)\s*([0-9]{2}\.[0-9]{2}\.[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})")
-        .expect("Invalid regex pattern for date extraction")
+    Regex::new(
+        r"(?i)\b(?:DATUM|DATE|ERSTELLT\s+AM|STAND|GENERATED|CREATED|AS\s+OF)\s*[:\-]?\s*([0-9]{2}\.[0-9]{2}\.[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})",
+    )
+    .expect("Invalid regex pattern for date extraction")
+});
+static ANY_DATE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b([0-9]{2}\.[0-9]{2}\.[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})\b")
+        .expect("Invalid regex pattern for fallback date extraction")
+});
+static TEXTUAL_DATUM_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\bDATUM[^\n]*?([0-3]?\d)\s+([[:alpha:].]+)\s+(20[0-9]{2})")
+        .expect("Invalid regex pattern for textual DATUM extraction")
+});
+static TEXTUAL_DATE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b([0-3]?\d)\s+([[:alpha:].]+)\s+(20[0-9]{2})\b")
+        .expect("Invalid regex pattern for textual date extraction")
+});
+static TEXTUAL_RANGE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\bDATUM[^\n]*?([0-3]?\d)\s+([[:alpha:].]+)\s+(20[0-9]{2})\s*[-\u{2013}\u{2014}]\s*([0-3]?\d)\s+([[:alpha:].]+)\s+(20[0-9]{2})",
+    )
+    .expect("Invalid regex pattern for textual date range extraction")
+});
+static NUMERIC_RANGE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\b(?:DATUM|DATE|ERSTELLT\s+AM|STAND|GENERATED|CREATED|AS\s+OF)\s*[:\-]?\s*([0-9]{2}\.[0-9]{2}\.[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})\s*[-\u{2013}\u{2014}]\s*([0-9]{2}\.[0-9]{2}\.[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})",
+    )
+    .expect("Invalid regex pattern for numeric date range extraction")
 });
 static ISIN_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b([A-Z]{2}[A-Z0-9]{9}[0-9])\b")
         .expect("Invalid regex pattern for ISIN extraction")
 });
+static IBAN_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\bIBAN\b[:\s]*([A-Z]{2}[A-Z0-9\s]{8,40})")
+        .expect("Invalid regex pattern for IBAN extraction")
+});
 static POSITION_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"POSITION[^\n]*\n([^\n]+)")
-        .expect("Invalid regex pattern for position extraction")
+    Regex::new(r"POSITION[^\n]*\n([^\n]+)").expect("Invalid regex pattern for position extraction")
 });
 static TRANSFER_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"Depottransfer eingegangen\s+(.+?)(?:\n|$)")
         .expect("Invalid regex pattern for transfer extraction")
 });
+static YEAR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(20[0-9]{2})\b").expect("Invalid regex pattern for year extraction")
+});
 
 /// Structure representing extracted PDF data from Trade Republic documents.
-/// 
+///
 /// This structure holds all the relevant information needed to generate
 /// a standardized filename for Trade Republic PDF documents.
-/// 
+///
 /// # Security
 /// All fields are validated during parsing to ensure safe values:
 /// - Date is validated to be within reasonable bounds (2000-current_year+5)
@@ -67,18 +97,18 @@ pub fn clean_name(name: &str) -> String {
     if name.len() > 500 {
         return "Invalid_Asset_Name".to_string();
     }
-    
+
     let mut s = name.to_string();
-    
+
     // Remove control characters and other dangerous Unicode characters
     s.retain(|c| {
-        !c.is_control() && 
-        c != '\u{202E}' && // Right-to-left override
-        c != '\u{202D}' && // Left-to-right override
-        c != '\u{200E}' && // Left-to-right mark
-        c != '\u{200F}'    // Right-to-left mark
+        !c.is_control()
+            && c != '\u{202E}' // Right-to-left override
+            && c != '\u{202D}' // Left-to-right override
+            && c != '\u{200E}' // Left-to-right mark
+            && c != '\u{200F}' // Right-to-left mark
     });
-    
+
     // Replace dangerous characters and whitespace with underscores
     s = DANGEROUS_CHARS_RE.replace_all(&s, "_").to_string();
     s = WHITESPACE_RE.replace_all(&s, "_").to_string();
@@ -94,19 +124,10 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
     if text.len() > 1_000_000 {
         return None;
     }
-    
+
     // --- Date extraction with improved error handling ---
-    
-    let date_caps = DATE_RE.captures(text)?;
-    let date_str = date_caps.get(1)?.as_str();
-    
-    // Validate and parse date with proper error handling
-    let date = if date_str.contains('.') {
-        NaiveDate::parse_from_str(date_str, "%d.%m.%Y").ok()?
-    } else {
-        NaiveDate::parse_from_str(date_str, "%Y-%m-%d").ok()?
-    };
-    
+    let date = extract_date(text)?;
+
     // Validate parsed date is reasonable (not too far in past/future)
     let current_year = chrono::Local::now().year();
     if date.year() < 2000 || date.year() > current_year + 5 {
@@ -118,6 +139,15 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
         ("WERTPAPIERABRECHNUNG SPARPLAN", "Kauf_Sparplan"),
         ("WERTPAPIERABRECHNUNG SAVEBACK", "Kauf_Saveback"),
         ("WERTPAPIERABRECHNUNG", "Kauf"),
+        (
+            "KOSTENINFORMATION ZUM SAVE-BACK",
+            "Kosteninformation_Saveback",
+        ),
+        ("KOSTENINFORMATION ZUM SAVE", "Kosteninformation_Saveback"),
+        ("EX-POST KOSTENINFORMATION", "Ex_Post_Kosteninformation"),
+        ("JAHRESSTEUERBESCHEINIGUNG", "Jahressteuerbescheinigung"),
+        ("STEUERREPORT", "Steuerreport"),
+        ("KONTOAUSZUG", "Kontoauszug"),
         ("DIVIDENDE", "Dividende"),
         ("ZINSEN", "Zinsen"),
         ("ZINSZAHLUNG", "Zinszahlung"),
@@ -134,8 +164,9 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
     ];
     // Default type; might get overwritten below (esp. for summary docs)
     let mut doc_type = "Unbekannt".to_string();
+    let text_upper = text.to_uppercase();
     for (needle, replacement) in &types {
-        if text.to_uppercase().contains(&needle.to_uppercase()) {
+        if text_upper.contains(&needle.to_uppercase()) {
             doc_type = (*replacement).to_string();
             break;
         }
@@ -248,15 +279,19 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
     if asset.is_none() {
         // Extract position info if available
         if let Some(caps) = POSITION_RE.captures(text)
-            && let Some(position_match) = caps.get(1) {
+            && let Some(position_match) = caps.get(1)
+        {
             asset = Some(position_match.as_str().trim().to_string());
         }
-        
+
         // Special handling for Zinsen/Dividende without position
-        if asset.is_none() && (doc_type == "Zinsen" || doc_type == "Zinszahlung" || doc_type == "Dividende") && isin.is_none() {
+        if asset.is_none()
+            && (doc_type == "Zinsen" || doc_type == "Zinszahlung" || doc_type == "Dividende")
+            && isin.is_none()
+        {
             asset = Some("Guthaben".to_string());
         }
-        
+
         // Final fallback
         if asset.is_none() {
             asset = Some("Guthaben".to_string());
@@ -266,7 +301,8 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
     // Spezialfälle für bestimmte Dokumenttypen
     if doc_type == "Depottransfer"
         && let Some(caps) = TRANSFER_RE.captures(text)
-        && let Some(transfer_match) = caps.get(1) {
+        && let Some(transfer_match) = caps.get(1)
+    {
         asset = Some(transfer_match.as_str().trim().to_string());
     }
     if doc_type == "Depotauszug" {
@@ -275,10 +311,41 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
     if doc_type == "Steuerliche_Optimierung" {
         asset = Some("Steuer".to_string());
     }
+    if doc_type == "Kontoauszug" {
+        isin = None;
+        asset = extract_iban(text).or_else(|| Some("Konto".to_string()));
+    }
+    if doc_type == "Kosteninformation_Saveback"
+        || doc_type == "Ex_Post_Kosteninformation"
+        || doc_type == "Jahressteuerbescheinigung"
+        || doc_type == "Steuerreport"
+    {
+        let referenced_year = YEAR_RE
+            .captures_iter(text)
+            .filter_map(|caps| caps.get(1))
+            .filter_map(|m| m.as_str().parse::<i32>().ok())
+            .filter(|year| *year >= 2000 && *year <= date.year())
+            .fold(None, |acc, year| {
+                if year == date.year() - 1 {
+                    Some(year)
+                } else {
+                    match acc {
+                        Some(existing) => Some(existing.max(year)),
+                        None => Some(year),
+                    }
+                }
+            })
+            .or_else(|| {
+                let prev = date.year() - 1;
+                if prev >= 2000 { Some(prev) } else { None }
+            })
+            .unwrap_or_else(|| date.year());
+        asset = Some(referenced_year.to_string());
+    }
 
     // Validate final asset name but don't clean it yet
     let final_asset = asset.unwrap_or_else(|| "Guthaben".to_string());
-    
+
     // Ensure asset name is not empty and not excessively long
     let validated_asset = if final_asset.trim().is_empty() || final_asset.len() > 500 {
         "Guthaben".to_string()
@@ -298,17 +365,17 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
 /// Validates all components to ensure safe filesystem operations
 pub fn build_filename(pdf_data: &PdfData, orig_name: &str) -> String {
     let date = pdf_data.date.format("%Y_%m_%d").to_string();
-    
+
     // Clean and validate document type
     let doc_type = clean_name(&pdf_data.doc_type.replace(' ', "_"));
-    
+
     // Clean and validate asset name with length limit
     let mut namepart = clean_name(&pdf_data.asset);
     if namepart.len() > 50 {
         namepart.truncate(50);
         namepart = namepart.trim_end_matches('_').to_string();
     }
-    
+
     // Validate ISIN if present
     let isin_part = pdf_data
         .isin
@@ -316,13 +383,201 @@ pub fn build_filename(pdf_data: &PdfData, orig_name: &str) -> String {
         .filter(|isin| isin.len() == 12 && isin.chars().all(|c| c.is_ascii_alphanumeric()))
         .map(|s| format!("_{s}"))
         .unwrap_or_default();
-    
+
     // Validate and clean file extension
     let ext = std::path::Path::new(orig_name)
         .extension()
         .and_then(std::ffi::OsStr::to_str)
         .filter(|ext| ext.len() <= 10 && ext.chars().all(|c| c.is_ascii_alphanumeric()))
         .unwrap_or("pdf");
-    
+
     format!("{date}_{doc_type}{isin_part}_{namepart}.{ext}")
+}
+
+fn extract_date(text: &str) -> Option<NaiveDate> {
+    if let Some(caps) = TEXTUAL_RANGE_RE.captures(text) {
+        return parse_textual_date_components(
+            caps.get(4)?.as_str(),
+            caps.get(5)?.as_str(),
+            caps.get(6)?.as_str(),
+        );
+    }
+
+    if let Some(caps) = NUMERIC_RANGE_RE.captures(text) {
+        return parse_numeric_date_component(caps.get(2)?.as_str());
+    }
+
+    if let Some(date) = TEXTUAL_DATUM_RE
+        .captures_iter(text)
+        .filter_map(|caps| {
+            parse_textual_date_components(
+                caps.get(1)?.as_str(),
+                caps.get(2)?.as_str(),
+                caps.get(3)?.as_str(),
+            )
+        })
+        .next()
+    {
+        return Some(date);
+    }
+
+    if let Some(date) = DATE_RE
+        .captures_iter(text)
+        .filter_map(|caps| caps.get(1))
+        .filter_map(|m| parse_numeric_date(m.as_str()))
+        .next()
+    {
+        return Some(date);
+    }
+
+    if let Some(date) = ANY_DATE_RE
+        .captures_iter(text)
+        .filter_map(|caps| caps.get(1))
+        .filter_map(|m| parse_numeric_date(m.as_str()))
+        .next()
+    {
+        return Some(date);
+    }
+
+    if let Some(date) = TEXTUAL_DATE_RE
+        .captures_iter(text)
+        .filter_map(|caps| {
+            parse_textual_date_components(
+                caps.get(1)?.as_str(),
+                caps.get(2)?.as_str(),
+                caps.get(3)?.as_str(),
+            )
+        })
+        .next()
+    {
+        return Some(date);
+    }
+
+    None
+}
+
+fn parse_numeric_date(date_str: &str) -> Option<NaiveDate> {
+    if let Some(date) = parse_numeric_date_component(date_str) {
+        return Some(date);
+    }
+
+    for separator in [" - ", " \u{2013} ", " \u{2014} "] {
+        if let Some(pos) = date_str.find(separator) {
+            let tail = &date_str[pos + separator.len()..];
+            if let Some(date) = parse_numeric_date_component(tail) {
+                return Some(date);
+            }
+        }
+    }
+
+    None
+}
+
+fn parse_numeric_date_component(date_str: &str) -> Option<NaiveDate> {
+    let trimmed = date_str.trim();
+
+    if trimmed.contains('.') {
+        NaiveDate::parse_from_str(trimmed, "%d.%m.%Y").ok()
+    } else if trimmed.len() == 10
+        && trimmed.as_bytes().get(4) == Some(&b'-')
+        && trimmed.as_bytes().get(7) == Some(&b'-')
+    {
+        NaiveDate::parse_from_str(trimmed, "%Y-%m-%d").ok()
+    } else {
+        None
+    }
+}
+
+fn parse_textual_date_components(day: &str, month: &str, year: &str) -> Option<NaiveDate> {
+    let day: u32 = day.trim().parse().ok()?;
+    let year: i32 = year.trim().parse().ok()?;
+    let month = month_name_to_number(month)?;
+    NaiveDate::from_ymd_opt(year, month, day)
+}
+
+fn month_name_to_number(month_raw: &str) -> Option<u32> {
+    let mut month = month_raw.trim().to_lowercase();
+    month = month.replace('.', "");
+    month = month.replace('\u{00E4}', "ae");
+    month = month.replace('\u{00F6}', "oe");
+    month = month.replace('\u{00FC}', "ue");
+    month = month.replace('\u{00DF}', "ss");
+    month.retain(|c| !c.is_whitespace());
+
+    match month.as_str() {
+        "jan" | "januar" | "january" => Some(1),
+        "feb" | "februar" | "february" => Some(2),
+        "mar" | "march" | "maerz" | "marz" => Some(3),
+        "apr" | "april" => Some(4),
+        "mai" | "may" => Some(5),
+        "jun" | "juni" | "june" => Some(6),
+        "jul" | "juli" | "july" => Some(7),
+        "aug" | "august" => Some(8),
+        "sep" | "sept" | "september" => Some(9),
+        "okt" | "oktober" | "oct" | "october" => Some(10),
+        "nov" | "november" => Some(11),
+        "dez" | "dezember" | "dec" | "december" => Some(12),
+        _ => None,
+    }
+}
+
+fn extract_iban(text: &str) -> Option<String> {
+    let caps = IBAN_RE.captures(text)?;
+    let raw = caps.get(1)?.as_str();
+    let cleaned: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
+
+    if cleaned.len() < 15 {
+        return None;
+    }
+
+    if !cleaned.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+
+    let upper = cleaned.to_uppercase();
+    let max_len = upper.len().min(34);
+
+    for len in (15..=max_len).rev() {
+        let candidate = &upper[..len];
+        if is_valid_iban(candidate) {
+            return Some(candidate.to_string());
+        }
+    }
+
+    None
+}
+
+fn is_valid_iban(iban: &str) -> bool {
+    let len = iban.len();
+    if len < 15 || len > 34 {
+        return false;
+    }
+
+    let bytes = iban.as_bytes();
+    if !bytes.get(0).map_or(false, u8::is_ascii_alphabetic)
+        || !bytes.get(1).map_or(false, u8::is_ascii_alphabetic)
+        || !bytes.get(2).map_or(false, u8::is_ascii_digit)
+        || !bytes.get(3).map_or(false, u8::is_ascii_digit)
+    {
+        return false;
+    }
+
+    if !iban.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return false;
+    }
+
+    let rearranged = format!("{}{}", &iban[4..], &iban[..4]);
+    let mut remainder: u32 = 0;
+
+    for ch in rearranged.chars() {
+        if let Some(digit) = ch.to_digit(10) {
+            remainder = (remainder * 10 + digit) % 97;
+        } else {
+            let value = (ch as u8 - b'A' + 10) as u32;
+            remainder = (remainder * 10 + value / 10) % 97;
+            remainder = (remainder * 10 + value % 10) % 97;
+        }
+    }
+
+    remainder == 1
 }

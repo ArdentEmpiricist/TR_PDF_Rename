@@ -11,17 +11,17 @@ use std::{env, fs};
 use walkdir::WalkDir;
 
 /// Extracts all text from a PDF file using pdf-extract
-/// 
+///
 /// # Security
 /// This function validates the input path and includes error handling
 /// to prevent crashes from malformed PDF files.
-/// 
+///
 /// # Arguments
 /// * `path` - Path to the PDF file to extract text from
-/// 
+///
 /// # Returns
 /// * `Result<String>` - Extracted text on success, error on failure
-/// 
+///
 /// # Errors
 /// Returns an error if the PDF cannot be read or parsed
 fn extract_pdf_text(path: &Path) -> Result<String> {
@@ -30,18 +30,18 @@ fn extract_pdf_text(path: &Path) -> Result<String> {
 }
 
 /// Checks if a filename already matches the target renaming scheme
-/// 
+///
 /// # Security
 /// Uses a pre-compiled static regex to prevent `ReDoS` attacks and improve performance.
-/// 
+///
 /// # Examples
 /// - `2024_08_12_Kauf_DE000A1EWWW0_Vanguard_Funds_PLC_ETF.pdf` ✓
 /// - `2024_08_12_Depotauszug_Depot.pdf` ✓ (no ISIN)
 /// - `original_file.pdf` ✗
-/// 
+///
 /// # Arguments
 /// * `filename` - The filename to check
-/// 
+///
 /// # Returns
 /// * `bool` - True if the filename matches the expected pattern
 fn is_already_renamed(filename: &str) -> bool {
@@ -55,27 +55,27 @@ fn is_already_renamed(filename: &str) -> bool {
 
 /// Processes all PDF files in a folder (and subfolders),
 /// skipping files already in the new naming scheme.
-/// 
+///
 /// # Security Features
 /// - Validates all paths to prevent directory traversal attacks
 /// - Limits file size processing to prevent `DoS` attacks  
 /// - Canonicalizes paths to ensure operations stay within target directory
 /// - Validates filename lengths to prevent filesystem issues
 /// - Includes comprehensive error handling for robustness
-/// 
+///
 /// # Arguments
 /// * `folder` - Path to the folder containing PDF files to process
-/// 
+///
 /// # Returns
 /// * `Result<()>` - Success or error details
-/// 
+///
 /// # Security Validations
 /// - Path existence and type validation
 /// - Directory traversal prevention via canonicalization
 /// - File size limits (100MB maximum)
 /// - Filename length validation (255 characters maximum)
 /// - Extension validation for PDF files only
-/// 
+///
 /// # Errors
 /// Returns an error if:
 /// - The folder doesn't exist or isn't a directory
@@ -89,11 +89,14 @@ fn process_folder(folder: &Path) -> Result<()> {
     if !folder.is_dir() {
         return Err(anyhow::anyhow!("Path is not a directory: {:?}", folder));
     }
-    
+
     // Canonicalize the folder path to prevent directory traversal attacks
     let canonical_folder = folder.canonicalize()?;
-    
-    for entry in WalkDir::new(&canonical_folder).into_iter().filter_map(|e| e.ok()) {
+
+    for entry in WalkDir::new(&canonical_folder)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if entry.file_type().is_file()
             && entry
                 .path()
@@ -103,13 +106,13 @@ fn process_folder(folder: &Path) -> Result<()> {
                 .unwrap_or(false)
         {
             let path = entry.path();
-            
+
             // Validate that the file is still within our target directory
             if !path.starts_with(&canonical_folder) {
                 println!("Skipping file outside target directory: {:?}", path);
                 continue;
             }
-            
+
             // Get filename with proper error handling
             let orig_filename = match path.file_name().and_then(|name| name.to_str()) {
                 Some(name) => name,
@@ -118,10 +121,13 @@ fn process_folder(folder: &Path) -> Result<()> {
                     continue;
                 }
             };
-            
+
             // Validate filename length
             if orig_filename.len() > 255 {
-                println!("Skipping file with excessively long name: {}", orig_filename);
+                println!(
+                    "Skipping file with excessively long name: {}",
+                    orig_filename
+                );
                 continue;
             }
 
@@ -132,25 +138,30 @@ fn process_folder(folder: &Path) -> Result<()> {
             }
 
             println!("Processing: {:?}", orig_filename);
-            
+
             // Add file size validation to prevent processing extremely large files
             if let Ok(metadata) = path.metadata()
-                && metadata.len() > 100_000_000 { // 100MB limit
+                && metadata.len() > 100_000_000
+            {
+                // 100MB limit
                 println!("Skipping large file (>100MB): {}", orig_filename);
                 continue;
             }
-            
+
             match extract_pdf_text(path) {
                 Ok(text) => {
                     if let Some(pdf_data) = parse_pdf_data(&text) {
                         let new_name = build_filename(&pdf_data, orig_filename);
-                        
+
                         // Validate the new filename
                         if new_name.len() > 255 {
-                            println!("Warning: Generated filename too long for {}, skipping", orig_filename);
+                            println!(
+                                "Warning: Generated filename too long for {}, skipping",
+                                orig_filename
+                            );
                             continue;
                         }
-                        
+
                         let new_path = match path.parent() {
                             Some(parent) => parent.join(new_name),
                             None => {
@@ -158,40 +169,72 @@ fn process_folder(folder: &Path) -> Result<()> {
                                 continue;
                             }
                         };
-                        
+
                         // Ensure new path is still within our target directory
                         if let Ok(canonical_new_path) = new_path.canonicalize().or_else(|_| {
                             // If canonicalize fails because the file doesn't exist yet,
                             // check the parent directory
-                            new_path.parent().map(|p| p.canonicalize()).unwrap_or_else(|| 
-                                Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Cannot canonicalize path"))
-                            )
-                        })
-                            && !canonical_new_path.starts_with(&canonical_folder) {
-                            println!("Warning: Refusing to rename outside target directory: {:?}", new_path);
+                            new_path
+                                .parent()
+                                .map(|p| p.canonicalize())
+                                .unwrap_or_else(|| {
+                                    Err(std::io::Error::new(
+                                        std::io::ErrorKind::NotFound,
+                                        "Cannot canonicalize path",
+                                    ))
+                                })
+                        }) && !canonical_new_path.starts_with(&canonical_folder)
+                        {
+                            println!(
+                                "Warning: Refusing to rename outside target directory: {:?}",
+                                new_path
+                            );
                             continue;
                         }
-                        if let Ok(canonical_parent) = new_path.parent().map(|p| p.canonicalize()).unwrap_or_else(|| 
-                            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Cannot canonicalize parent directory"))
-                        ) {
+                        if let Ok(canonical_parent) = new_path
+                            .parent()
+                            .map(|p| p.canonicalize())
+                            .unwrap_or_else(|| {
+                                Err(std::io::Error::new(
+                                    std::io::ErrorKind::NotFound,
+                                    "Cannot canonicalize parent directory",
+                                ))
+                            })
+                        {
                             // The new path must be directly under the canonical parent, and canonical parent must be within canonical_folder
                             if !canonical_parent.starts_with(&canonical_folder) {
-                                println!("Warning: Refusing to rename outside target directory: {:?}", new_path);
+                                println!(
+                                    "Warning: Refusing to rename outside target directory: {:?}",
+                                    new_path
+                                );
                                 continue;
                             }
                         } else {
-                            println!("Warning: Could not canonicalize parent directory for {:?}", new_path);
+                            println!(
+                                "Warning: Could not canonicalize parent directory for {:?}",
+                                new_path
+                            );
                             continue;
                         }
                         match new_path.file_name() {
                             Some(name) => println!("Renaming to: {:?}", name),
-                            None => println!("Warning: Could not determine filename for {:?}", new_path),
+                            None => {
+                                println!("Warning: Could not determine filename for {:?}", new_path)
+                            }
                         }
-                        
+
                         if let Err(e) = fs::rename(path, &new_path) {
                             println!("Error renaming {:?}: {}", orig_filename, e);
                         }
                     } else {
+                        if std::env::var("TR_DEBUG_TEXT").is_ok() {
+                            let preview = text.chars().take(1000).collect::<String>();
+                            println!(
+                                "Debug preview for {:?}: {}",
+                                orig_filename,
+                                preview.replace('\n', "\\n")
+                            );
+                        }
                         println!("Warning: Could not parse {:?}", orig_filename);
                     }
                 }
@@ -207,35 +250,47 @@ fn process_folder(folder: &Path) -> Result<()> {
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
-        eprintln!("Usage: {} <folder>", args.first().unwrap_or(&"tr_pdf_rename".to_string()));
-        eprintln!("Example: {} /path/to/pdf/folder", args.first().unwrap_or(&"tr_pdf_rename".to_string()));
+        eprintln!(
+            "Usage: {} <folder>",
+            args.first().unwrap_or(&"tr_pdf_rename".to_string())
+        );
+        eprintln!(
+            "Example: {} /path/to/pdf/folder",
+            args.first().unwrap_or(&"tr_pdf_rename".to_string())
+        );
         return Ok(());
     }
-    
+
     let folder_arg = &args[1];
-    
+
     // Enhanced input validation
-    if folder_arg.len() > 4096 { // Reasonable path length limit
-        return Err(anyhow::anyhow!("Folder path too long (max 4096 characters)"));
+    if folder_arg.len() > 4096 {
+        // Reasonable path length limit
+        return Err(anyhow::anyhow!(
+            "Folder path too long (max 4096 characters)"
+        ));
     }
-    
+
     // Check for null bytes and other dangerous characters in path
     if folder_arg.contains('\0') {
         return Err(anyhow::anyhow!("Invalid path: contains null byte"));
     }
-    
+
     // Additional security check for suspicious patterns
     if folder_arg.starts_with('-') {
         return Err(anyhow::anyhow!("Invalid path: path cannot start with dash"));
     }
-    
+
     let folder = PathBuf::from(folder_arg);
-    
+
     // Additional validation
     if !folder.exists() {
-        return Err(anyhow::anyhow!("Folder does not exist: {}", folder.display()));
+        return Err(anyhow::anyhow!(
+            "Folder does not exist: {}",
+            folder.display()
+        ));
     }
-    
+
     process_folder(&folder)?;
     println!("Processing completed successfully.");
     Ok(())
@@ -442,14 +497,20 @@ mod tests {
             isin: None,
             asset: "Test Asset".to_string(),
         };
-        
+
         // Test with malicious extension
         let filename = build_filename(&pdf_data, "test../../../etc/passwd");
-        assert!(filename.ends_with(".pdf"), "Should default to .pdf for unsafe extensions");
-        
+        assert!(
+            filename.ends_with(".pdf"),
+            "Should default to .pdf for unsafe extensions"
+        );
+
         // Test with oversized extension
         let filename = build_filename(&pdf_data, &format!("test.{}", "a".repeat(20)));
-        assert!(filename.ends_with(".pdf"), "Should default to .pdf for oversized extensions");
+        assert!(
+            filename.ends_with(".pdf"),
+            "Should default to .pdf for oversized extensions"
+        );
     }
 
     #[test]
@@ -471,11 +532,114 @@ mod tests {
     fn test_asset_validation_in_parsing() {
         let input = "DATUM 01.01.2024\nKauf\n";
         let result = parse_pdf_data(input).unwrap();
-        
+
         // Asset should not be empty
         assert!(!result.asset.is_empty());
-        
+
         // Asset should have reasonable length
         assert!(result.asset.len() <= 500);
+    }
+
+    #[test]
+    fn test_kosteninformation_saveback_uses_year_asset() {
+        let input = "DATUM 01.02.2025\nKosteninformation zum Save-Back\nDiese Kosteninformation gilt für das Kalenderjahr 2024.\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.doc_type, "Kosteninformation_Saveback");
+        assert_eq!(result.asset, "2024");
+    }
+
+    #[test]
+    fn test_ex_post_kosteninformation_uses_year_asset() {
+        let input = "DATE 2025-07-25\nEx-Post Kosteninformation\nbezogen auf das Jahr 2024\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.doc_type, "Ex_Post_Kosteninformation");
+        assert_eq!(result.asset, "2024");
+    }
+
+    #[test]
+    fn test_jahressteuerbescheinigung_uses_year_asset() {
+        let input = "DATUM 27.03.2025\nJahressteuerbescheinigung\nSteuerjahr 2024\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.doc_type, "Jahressteuerbescheinigung");
+        assert_eq!(result.asset, "2024");
+    }
+
+    #[test]
+    fn test_special_docs_fall_back_to_document_year_if_no_reference() {
+        let input = "DATUM 15.03.2025\nEx-Post Kosteninformation\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.asset, "2025");
+    }
+
+    #[test]
+    fn test_steuerreport_detects_creation_date_keyword() {
+        let input = "Erstellt am 26.02.2025\nSteuerreport\nSteuerjahr 2024\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.doc_type, "Steuerreport");
+        assert_eq!(result.asset, "2024");
+        assert_eq!(
+            result.date,
+            chrono::NaiveDate::from_ymd_opt(2025, 2, 26).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_date_fallback_without_keyword() {
+        let input = "Steuerreport 2024\n31.12.2024\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(
+            result.date,
+            chrono::NaiveDate::from_ymd_opt(2024, 12, 31).unwrap()
+        );
+        assert_eq!(result.doc_type, "Steuerreport");
+        assert_eq!(result.asset, "2024");
+    }
+
+    #[test]
+    fn test_kontoauszug_sets_konto_asset() {
+        let input = "Kontoauszug\nDATUM 01.01.2024\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.doc_type, "Kontoauszug");
+        assert_eq!(result.asset, "Konto");
+        assert!(result.isin.is_none());
+        assert_eq!(
+            result.date,
+            chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_kontoauszug_textual_date_range() {
+        let input = "Erstellt am 17 Juni 2025\nDATUM 01 Mai 2025 - 31 Okt. 2025\nIBAN DE12 1001 2345 0726 7593 01\nKontoauszug\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(result.doc_type, "Kontoauszug");
+        assert_eq!(result.asset, "DE12100123450726759301");
+        assert!(result.isin.is_none());
+        assert_eq!(
+            result.date,
+            chrono::NaiveDate::from_ymd_opt(2025, 10, 31).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_kontoauszug_filename_uses_iban_without_isin() {
+        let input =
+            "DATUM 01 Jan. 2025 - 31 Okt. 2025\nIBAN DE12 1001 2345 0726 7593 01\nKontoauszug\n";
+        let result = parse_pdf_data(input).unwrap();
+        let filename = build_filename(&result, "Kontoauszug.pdf");
+        assert_eq!(
+            filename,
+            "2025_10_31_Kontoauszug_DE12100123450726759301.pdf"
+        );
+    }
+
+    #[test]
+    fn test_numeric_date_range_uses_end_date() {
+        let input = "DATUM 01.01.2024 - 31.03.2024\nSteuerreport\nSteuerjahr 2023\n";
+        let result = parse_pdf_data(input).unwrap();
+        assert_eq!(
+            result.date,
+            chrono::NaiveDate::from_ymd_opt(2024, 3, 31).unwrap()
+        );
     }
 }
