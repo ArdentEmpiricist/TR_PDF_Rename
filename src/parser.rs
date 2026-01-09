@@ -62,6 +62,9 @@ static TRANSFER_RE: LazyLock<Regex> = LazyLock::new(|| {
 static YEAR_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b(20[0-9]{2})\b").expect("Invalid regex pattern for year extraction")
 });
+static SELL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(?:SELL|VERKAUF)\b").expect("Invalid regex pattern for sell detection")
+});
 
 /// Structure representing extracted PDF data from Trade Republic documents.
 ///
@@ -172,6 +175,10 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
         }
     }
 
+    if doc_type == "Kauf" && SELL_RE.is_match(text) {
+        doc_type = "Verkauf".to_string();
+    }
+
     // --- ISIN + Asset Extraction (improved, more robust) ---
     let mut isin = None;
     let mut asset = None;
@@ -200,7 +207,8 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
                                 && !ISIN_REGEX.is_match(after)
                                 && after.len() > 3
                                 && !after.to_lowercase().contains("gesamt")
-                                && !after.to_lowercase().contains("eur")
+                                && !after.trim().eq_ignore_ascii_case("eur")
+                                && !after.to_lowercase().starts_with("betrag")
                                 && !after.contains("Stk.")
                                 && !after.chars().all(|c| c.is_ascii_digit())
                                 && !after.to_lowercase().starts_with("datum")
@@ -223,7 +231,8 @@ pub fn parse_pdf_data(text: &str) -> Option<PdfData> {
                                 && before.len() > 3
                                 && !before.chars().all(|c| c.is_ascii_digit())
                                 && !before.to_lowercase().contains("gesamt")
-                                && !before.to_lowercase().contains("eur")
+                                && !before.trim().eq_ignore_ascii_case("eur")
+                                && !before.to_lowercase().starts_with("betrag")
                                 && !before.starts_with("POSITION")
                                 && !before.to_lowercase().contains("anzahl")
                                 && !before.contains("Stk.")
@@ -377,12 +386,10 @@ pub fn build_filename(pdf_data: &PdfData, orig_name: &str) -> String {
     }
 
     // Validate ISIN if present
-    let isin_part = pdf_data
+    let isin = pdf_data
         .isin
         .as_ref()
-        .filter(|isin| isin.len() == 12 && isin.chars().all(|c| c.is_ascii_alphanumeric()))
-        .map(|s| format!("_{s}"))
-        .unwrap_or_default();
+        .filter(|isin| isin.len() == 12 && isin.chars().all(|c| c.is_ascii_alphanumeric()));
 
     // Validate and clean file extension
     let ext = std::path::Path::new(orig_name)
@@ -391,7 +398,15 @@ pub fn build_filename(pdf_data: &PdfData, orig_name: &str) -> String {
         .filter(|ext| ext.len() <= 10 && ext.chars().all(|c| c.is_ascii_alphanumeric()))
         .unwrap_or("pdf");
 
-    format!("{date}_{doc_type}{isin_part}_{namepart}.{ext}")
+    if let Some(isin_str) = isin {
+        if namepart == *isin_str {
+            format!("{}_{}_{}.{}", date, doc_type, isin_str, ext)
+        } else {
+            format!("{}_{}_{}_{}.{}", date, doc_type, isin_str, namepart, ext)
+        }
+    } else {
+        format!("{}_{}_{}.{}", date, doc_type, namepart, ext)
+    }
 }
 
 fn extract_date(text: &str) -> Option<NaiveDate> {
@@ -585,3 +600,106 @@ fn is_valid_iban(iban: &str) -> bool {
 
     remainder == 1
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+
+    #[test]
+    fn test_sell_correction() {
+        let text = "Securities Settlement\nDATE 2026-01-06\nSELL\nISIN IE00BZ163G84";
+        let data = parse_pdf_data(text).unwrap();
+        assert_eq!(data.doc_type, "Verkauf");
+        assert_eq!(data.date, NaiveDate::from_ymd_opt(2026, 1, 6).unwrap());
+    }
+
+    #[test]
+    fn test_buy_default() {
+        let text = "Securities Settlement\nDATE 2026-01-06\nBUY\nISIN IE00BZ163G84";
+        let data = parse_pdf_data(text).unwrap();
+        assert_eq!(data.doc_type, "Kauf");
+    }
+
+    #[test]
+    fn test_double_isin_filename() {
+        let data = PdfData {
+            date: NaiveDate::from_ymd_opt(2026, 1, 6).unwrap(),
+            doc_type: "Kauf".to_string(),
+            isin: Some("IE00BZ163G84".to_string()),
+            asset: "IE00BZ163G84".to_string(), // Asset fallback to ISIN
+        };
+        let filename = build_filename(&data, "original.pdf");
+        assert_eq!(filename, "2026_01_06_Kauf_IE00BZ163G84.pdf");
+    }
+    
+    #[test]
+    fn test_normal_filename() {
+        let data = PdfData {
+            date: NaiveDate::from_ymd_opt(2026, 1, 6).unwrap(),
+            doc_type: "Kauf".to_string(),
+            isin: Some("IE00BZ163G84".to_string()),
+            asset: "Nvidia".to_string(), 
+        };
+        let filename = build_filename(&data, "original.pdf");
+        assert_eq!(filename, "2026_01_06_Kauf_IE00BZ163G84_Nvidia.pdf");
+    }
+
+    #[test]
+    fn test_asset_with_eur_name() {
+        let text = "Securities Settlement\nDATE 2026-01-06\nBUY\nISIN IE00BZ163G84\nEUR Corporate Bond (Dist)";
+        let data = parse_pdf_data(text).unwrap();
+        assert_eq!(data.asset, "EUR Corporate Bond (Dist)");
+        
+        let filename = build_filename(&data, "orig.pdf");
+        // "Kauf" because "BUY" is in text but SELL/VERKAUF is not.
+        assert_eq!(filename, "2026_01_06_Kauf_IE00BZ163G84_EUR_Corporate_Bond_Dist.pdf");
+    }
+}
+
+    #[test]
+    fn test_depotauszug_filename() {
+        let text = "Depotauszug\nDATUM 05.11.2025\nDepotnummer 123456";
+        let data = parse_pdf_data(text).unwrap();
+        // Current logic forces asset "Depot" for "Depotauszug"
+        assert_eq!(data.doc_type, "Depotauszug");
+        assert_eq!(data.asset, "Depot");
+    }
+
+    #[test]
+    fn test_depotauszug_with_isin_in_text() {
+        // Test case reflecting the user's file: 2025_11_05_Depotauszug_CNE1000007Z2_Depot.pdf
+        // If an ISIN is present in a Depotauszug, should it be in the filename?
+        // Currently build_filename includes ISIN if present in PdfData.
+        
+        let text = "Depotauszug\nDATUM 05.11.2025\nISIN CNE1000007Z2";
+        let data = parse_pdf_data(text).unwrap();
+        
+        // Check if ISIN is extracted. 
+        // The parser logic iterates lines to find ISIN.
+        // But later for specific doc_types, it OVERWRITES asset.
+        // It does NOT clear ISIN for Depotauszug, unlike Kontoauszug.
+        
+        assert_eq!(data.isin, Some("CNE1000007Z2".to_string()));
+        assert_eq!(data.asset, "Depot");
+        
+        let filename = build_filename(&data, "orig.pdf");
+        // Expected: 2025_11_05_Depotauszug_CNE1000007Z2_Depot.pdf
+        assert_eq!(filename, "2025_11_05_Depotauszug_CNE1000007Z2_Depot.pdf");
+    }
+
+    #[test]
+    fn test_ex_post_kosteninformation_filename() {
+         // User file: 2025_07_25_Ex_Post_Kosteninformation_IE00BF4RFH31_2025.pdf
+         let text = "EX-POST KOSTENINFORMATION\nDATUM 25.07.2025\nISIN IE00BF4RFH31\nBerichtszeitraum 2025";
+         let data = parse_pdf_data(text).unwrap();
+         
+         assert_eq!(data.doc_type, "Ex_Post_Kosteninformation");
+         assert_eq!(data.isin, Some("IE00BF4RFH31".to_string()));
+         // Asset logic for Ex_Post_Kosteninformation tries to find a year.
+         assert_eq!(data.asset, "2025");
+         
+         let filename = build_filename(&data, "orig.pdf");
+         // Expected: 2025_07_25_Ex_Post_Kosteninformation_IE00BF4RFH31_2025.pdf
+         assert_eq!(filename, "2025_07_25_Ex_Post_Kosteninformation_IE00BF4RFH31_2025.pdf");
+    }
